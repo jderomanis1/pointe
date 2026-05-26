@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@pointe/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -56,6 +59,10 @@ importers:
         version: 4.95.0(@cloudflare/workers-types@4.20260526.1)
 
   apps/worker:
+    dependencies:
+      '@pointe/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260526.1
