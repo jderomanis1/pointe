@@ -10,3 +10,7 @@ class_name = "Room"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[routes]]
+pattern = "pointe.team/api/*"
+zone_name = "pointe.team"
