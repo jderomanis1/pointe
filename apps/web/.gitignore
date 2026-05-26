@@ -1,0 +1,6 @@
+# Vite build output
+dist/
+
+# Wrangler local
+.wrangler/
+.dev.vars
