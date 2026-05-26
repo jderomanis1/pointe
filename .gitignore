@@ -141,3 +141,14 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Cloudflare Workers / Wrangler
+.wrangler/
+.dev.vars
+wrangler.toml.bak
+
+# pnpm
+.pnpm-debug.log
+
+# Project local
+.spec-cache/
