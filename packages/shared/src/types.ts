@@ -82,6 +82,8 @@ export interface CreateRoomResponse {
   room: Room;
   /** Session token for the host user, set as HttpOnly cookie. */
   sessionToken: string;
+  /** Human-readable slug for the shareable room URL (e.g. "swift-deer-42"). */
+  slug: RoomId;
 }
 
 /** Response body for GET /api/rooms/:slug. */

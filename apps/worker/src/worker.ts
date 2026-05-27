@@ -57,9 +57,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   // Reserve the slug before creating the DO: it's cheap and fails fast.
   // Caveat: if the DO init below fails after this point, the slug entry leaks
   // until its 30-day TTL expires. v1 accepts this; v2 should add cleanup.
-  // NOTE: CreateRoomResponse has no slug field, so the reserved slug is stored
-  // in KV but not yet returned to the client. Surfacing it is a follow-up.
-  await reserveSlug(env.POINTE_SLUGS, roomId);
+  const slug = await reserveSlug(env.POINTE_SLUGS, roomId);
 
   const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
   const initRes = await stub.fetch(
@@ -83,7 +81,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 
   const room = (await initRes.json()) as RoomState;
   const sessionToken = crypto.randomUUID();
-  const responseBody: CreateRoomResponse = { room, sessionToken };
+  const responseBody: CreateRoomResponse = { room, sessionToken, slug };
   const cookie =
     `pointe_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; ` +
     `Path=/; Max-Age=${SESSION_TTL_SECONDS}`;
