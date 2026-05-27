@@ -3,10 +3,11 @@ import type {
   ApiError,
   CreateRoomRequest,
   CreateRoomResponse,
+  GetRoomResponse,
   Room as RoomState,
 } from '@pointe/shared';
 import { Room } from './room';
-import { reserveSlug } from './slug';
+import { lookupSlug, reserveSlug } from './slug';
 
 export { Room };
 
@@ -88,6 +89,36 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   return json(responseBody, 201, { 'Set-Cookie': cookie });
 }
 
+/**
+ * Handle GET /api/rooms/:slug. Returns null if the path isn't a room-by-slug
+ * request, signalling the dispatcher to fall through to the 404 handler.
+ */
+async function getRoom(request: Request, env: Env): Promise<Response | null> {
+  const { pathname } = new URL(request.url);
+  const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)$/);
+  if (!match) return null;
+  const slug = match[1];
+
+  const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
+  if (roomId === null) {
+    return errorResponse('Room not found', 'SLUG_NOT_FOUND', 404);
+  }
+
+  const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
+  const stateRes = await stub.fetch(new Request('https://do/state', { method: 'GET' }));
+  if (!stateRes.ok) {
+    // Propagate the DO's error body and status code unchanged.
+    return new Response(await stateRes.text(), {
+      status: stateRes.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const room = (await stateRes.json()) as RoomState;
+  const responseBody: GetRoomResponse = { room };
+  return json(responseBody, 200);
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -99,6 +130,16 @@ export default {
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       try {
         return await createRoom(request, env);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Internal error';
+        return errorResponse('Internal server error', message, 500);
+      }
+    }
+
+    if (url.pathname.startsWith('/api/rooms/') && request.method === 'GET') {
+      try {
+        const res = await getRoom(request, env);
+        if (res) return res;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal error';
         return errorResponse('Internal server error', message, 500);
