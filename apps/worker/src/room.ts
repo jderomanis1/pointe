@@ -46,6 +46,31 @@ type RoundRow = {
 
 type RoundVoteRow = VoteRow & { round_id: number };
 
+/** Map a thrown lifecycle error code to an HTTP status. */
+function mapErrorToStatus(code: string): number {
+  switch (code) {
+    case 'ROOM_ALREADY_INITIALIZED':
+    case 'ROOM_NOT_IN_VOTING_PHASE':
+    case 'ROOM_NOT_IN_REVEALED_PHASE':
+      return 409;
+    case 'ROOM_NOT_INITIALIZED':
+    case 'USER_NOT_FOUND':
+      return 404;
+    case 'OBSERVER_CANNOT_VOTE':
+      return 403;
+    default:
+      return 500;
+  }
+}
+
+/** Build a JSON Response with the given body and status. */
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 export class Room {
   private ctx: DurableObjectState;
   private env: Env;
@@ -281,5 +306,57 @@ export class Room {
       reasoning: row.reasoning ?? undefined,
       submittedAt: row.submitted_at,
     };
+  }
+
+  /**
+   * Internal HTTP dispatcher. Called only via stub.fetch() from the Worker —
+   * the DO exposes no external routes. Maps internal paths to lifecycle methods.
+   */
+  async fetch(request: Request): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    const method = request.method;
+    try {
+      if (method === 'POST' && pathname === '/init') {
+        const body = (await request.json()) as {
+          roomId: string;
+          hostUser: { id: string; displayName: string };
+          scaleType: ScaleType;
+          topic?: string;
+        };
+        return jsonResponse(await this.init(body), 200);
+      }
+      if (method === 'GET' && pathname === '/state') {
+        return jsonResponse(await this.getState(), 200);
+      }
+      if (method === 'POST' && pathname === '/users') {
+        const body = (await request.json()) as { displayName: string; isObserver?: boolean };
+        return jsonResponse(await this.addUser(body), 200);
+      }
+      if (method === 'POST' && pathname === '/votes') {
+        const body = (await request.json()) as {
+          userId: string;
+          value: string;
+          confidence: Confidence;
+          reasoning?: string;
+        };
+        await this.castVote(body);
+        return new Response(null, { status: 204 });
+      }
+      if (method === 'POST' && pathname === '/reveal') {
+        return jsonResponse(await this.revealVotes(), 200);
+      }
+      if (method === 'POST' && pathname === '/next-round') {
+        const body = (await request.json()) as { topic?: string };
+        return jsonResponse(await this.startNextRound(body), 200);
+      }
+      if (method === 'POST' && pathname === '/close') {
+        await this.closeRoom();
+        return new Response(null, { status: 204 });
+      }
+      return jsonResponse({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal error';
+      return jsonResponse({ error: message, code: message }, mapErrorToStatus(message));
+    }
   }
 }
