@@ -1,9 +1,11 @@
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { Room } from './room';
 
 export { Room };
 
 export interface Env {
   ROOM: DurableObjectNamespace;
+  POINTE_SLUGS: KVNamespace;
 }
 
 export default {

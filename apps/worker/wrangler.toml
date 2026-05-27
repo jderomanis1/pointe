@@ -14,3 +14,7 @@ new_sqlite_classes = ["Room"]
 [[routes]]
 pattern = "pointe.team/api/*"
 zone_name = "pointe.team"
+
+[[kv_namespaces]]
+binding = "POINTE_SLUGS"
+id = "2324d231abff45ff8c4d7b30560f2ff5"
