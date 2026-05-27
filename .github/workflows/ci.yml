@@ -32,3 +32,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm -F @pointe/worker test
