@@ -121,3 +121,30 @@ export type AuditEvent = {
   eventType: AuditEventType;
   payload: Record<string, unknown>;
 };
+
+// API DTOs (REST surface — see Doc 2 §9)
+
+export type CreateRoomRequest = {
+  hostDisplayName: string;
+  /** Defaults to 'fibonacci'. */
+  deck?: DeckType;
+  /** Defaults to 'sync'. */
+  mode?: RoomMode;
+  /** Required iff `deck === 'custom'`. */
+  customDeck?: string[];
+};
+
+export type CreateRoomResponse = {
+  slug: string;
+  /** The host's voterId — also set as the `pointe_session` cookie. */
+  voterId: string;
+  /** Constructed WebSocket URL. The /ws endpoint itself lands in R2. */
+  wsUrl: string;
+};
+
+export type GetRoomResponse = {
+  state: RoomState;
+  deck: DeckType;
+};
+
+export type ApiError = { code: string; message: string };

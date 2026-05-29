@@ -264,7 +264,7 @@ describe('operations', () => {
   it('commitStory: revealed → committed and sets finalEstimate', () => {
     const sql = setupActive();
     revealVotes(sql, { storyId: 's-1', now: NOW + 20 });
-    const committed = commitStory(sql, { storyId: 's-1', finalEstimate: '5', now: NOW + 30 });
+    const committed = commitStory(sql, { storyId: 's-1', finalEstimate: '5' });
     expect(committed.state).toBe('committed');
     expect(committed.finalEstimate).toBe('5');
   });
@@ -273,7 +273,7 @@ describe('operations', () => {
     const sql = setupActive();
     // Story is active but not revealed yet.
     expect(() =>
-      commitStory(sql, { storyId: 's-1', finalEstimate: '5', now: NOW + 30 }),
+      commitStory(sql, { storyId: 's-1', finalEstimate: '5' }),
     ).toThrow('STORY_NOT_REVEALED');
   });
 });

@@ -3,10 +3,12 @@ import type {
   ApiError,
   CreateRoomRequest,
   CreateRoomResponse,
+  DeckType,
   GetRoomResponse,
-  Room as RoomState,
+  RoomMode,
 } from '@pointe/shared';
 import { Room } from './room';
+import type { RoomReadState } from './operations';
 import { lookupSlug, reserveSlug } from './slug';
 
 export { Room };
@@ -25,39 +27,35 @@ function json(body: unknown, status: number, extraHeaders?: Record<string, strin
   });
 }
 
-function errorResponse(
-  error: string,
-  code: string,
-  status: number,
-  details?: Record<string, unknown>,
-): Response {
-  const body: ApiError = details ? { error, code, details } : { error, code };
+function errorResponse(code: string, message: string, status: number): Response {
+  const body: ApiError = { code, message };
   return json(body, status);
 }
 
-async function createRoom(request: Request, env: Env): Promise<Response> {
+async function createRoomEndpoint(request: Request, env: Env): Promise<Response> {
   let parsed: unknown;
   try {
     parsed = await request.json();
   } catch {
-    return errorResponse('Malformed JSON', 'MALFORMED_JSON', 400);
+    return errorResponse('MALFORMED_JSON', 'Malformed JSON body', 400);
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    return errorResponse('Validation failed', 'INVALID_REQUEST', 400, { field: 'hostDisplayName' });
+    return errorResponse('INVALID_REQUEST', 'hostDisplayName required', 400);
   }
-
   const req = parsed as CreateRoomRequest;
   const name = req.hostDisplayName;
   if (typeof name !== 'string' || name.trim().length === 0 || name.length > 60) {
-    return errorResponse('Validation failed', 'INVALID_REQUEST', 400, { field: 'hostDisplayName' });
+    return errorResponse('INVALID_REQUEST', 'hostDisplayName required (1–60 chars)', 400);
+  }
+  const deck: DeckType = req.deck ?? 'fibonacci';
+  const mode: RoomMode = req.mode ?? 'sync';
+  if (deck === 'custom' && (!Array.isArray(req.customDeck) || req.customDeck.length === 0)) {
+    return errorResponse('INVALID_REQUEST', 'customDeck required when deck is "custom"', 400);
   }
 
   const roomId = crypto.randomUUID();
-  const hostUserId = crypto.randomUUID();
-
-  // Reserve the slug before creating the DO: it's cheap and fails fast.
-  // Caveat: if the DO init below fails after this point, the slug entry leaks
-  // until its 30-day TTL expires. v1 accepts this; v2 should add cleanup.
+  const hostVoterId = crypto.randomUUID();
+  // Reserve the slug before creating the DO: cheap, fails fast. Leaks until TTL on later failure (v1 accepts).
   const slug = await reserveSlug(env.POINTE_SLUGS, roomId);
 
   const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
@@ -66,34 +64,36 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
       method: 'POST',
       body: JSON.stringify({
         roomId,
-        hostUser: { id: hostUserId, displayName: name },
-        scaleType: req.scaleType ?? 'fibonacci',
-        topic: req.topic,
+        slug,
+        hostVoterId,
+        hostDisplayName: name,
+        deck,
+        mode,
+        customDeck: req.customDeck,
       }),
     }),
   );
   if (!initRes.ok) {
-    // Propagate the DO's error body and status code unchanged.
     return new Response(await initRes.text(), {
       status: initRes.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  const room = (await initRes.json()) as RoomState;
-  const sessionToken = crypto.randomUUID();
-  const responseBody: CreateRoomResponse = { room, sessionToken, slug };
+  const host = new URL(request.url).host;
+  const responseBody: CreateRoomResponse = {
+    slug,
+    voterId: hostVoterId,
+    wsUrl: `wss://${host}/api/rooms/${slug}/ws`,
+  };
   const cookie =
-    `pointe_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; ` +
+    `pointe_session=${hostVoterId}; HttpOnly; Secure; SameSite=Lax; ` +
     `Path=/; Max-Age=${SESSION_TTL_SECONDS}`;
   return json(responseBody, 201, { 'Set-Cookie': cookie });
 }
 
-/**
- * Handle GET /api/rooms/:slug. Returns null if the path isn't a room-by-slug
- * request, signalling the dispatcher to fall through to the 404 handler.
- */
-async function getRoom(request: Request, env: Env): Promise<Response | null> {
+/** GET /api/rooms/:slug → minimal `{state, deck}`. Full state comes over WS in R2. */
+async function getRoomEndpoint(request: Request, env: Env): Promise<Response | null> {
   const { pathname } = new URL(request.url);
   const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)$/);
   if (!match) return null;
@@ -101,21 +101,23 @@ async function getRoom(request: Request, env: Env): Promise<Response | null> {
 
   const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
   if (roomId === null) {
-    return errorResponse('Room not found', 'SLUG_NOT_FOUND', 404);
+    return errorResponse('SLUG_NOT_FOUND', 'Room not found', 404);
   }
 
   const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
   const stateRes = await stub.fetch(new Request('https://do/state', { method: 'GET' }));
   if (!stateRes.ok) {
-    // Propagate the DO's error body and status code unchanged.
     return new Response(await stateRes.text(), {
       status: stateRes.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  const room = (await stateRes.json()) as RoomState;
-  const responseBody: GetRoomResponse = { room };
+  const readState = (await stateRes.json()) as RoomReadState;
+  const responseBody: GetRoomResponse = {
+    state: readState.room.state,
+    deck: readState.room.deck,
+  };
   return json(responseBody, 200);
 }
 
@@ -129,23 +131,23 @@ export default {
 
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       try {
-        return await createRoom(request, env);
+        return await createRoomEndpoint(request, env);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal error';
-        return errorResponse('Internal server error', message, 500);
+        return errorResponse(message, message, 500);
       }
     }
 
     if (url.pathname.startsWith('/api/rooms/') && request.method === 'GET') {
       try {
-        const res = await getRoom(request, env);
+        const res = await getRoomEndpoint(request, env);
         if (res) return res;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal error';
-        return errorResponse('Internal server error', message, 500);
+        return errorResponse(message, message, 500);
       }
     }
 
-    return errorResponse('Not found', 'NOT_FOUND', 404);
+    return errorResponse('NOT_FOUND', 'Not found', 404);
   },
 };

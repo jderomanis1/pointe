@@ -263,9 +263,8 @@ export function revealVotes(
 /** Commit a revealed story with the agreed final estimate. */
 export function commitStory(
   sql: SqlStorage,
-  params: { storyId: string; finalEstimate: string; now: number },
+  params: { storyId: string; finalEstimate: string },
 ): Story {
-  void params.now; // reserved for audit-event timestamp
   const story = sql.exec<{ state: string }>('SELECT state FROM story WHERE id = ?', params.storyId).toArray()[0];
   if (!story || story.state !== 'revealed') throw new Error('STORY_NOT_REVEALED');
   sql.exec(`UPDATE story SET state = 'committed', final_estimate = ? WHERE id = ?`, params.finalEstimate, params.storyId);
