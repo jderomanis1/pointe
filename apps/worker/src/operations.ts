@@ -2,7 +2,7 @@ import type { SqlStorage } from '@cloudflare/workers-types';
 import type { DeckType, Room, RoomMode, Story, Vote, Voter, VoterRole } from '@pointe/shared';
 
 /** Worker-internal read result. NOT the protocol snapshot — that's R2. */
-export type RoomState = { room: Room; voters: Voter[]; stories: Story[]; votes: Vote[] };
+export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; votes: Vote[] };
 
 // SQLite row shapes (snake_case mirrors of the spec entities).
 type RoomRow = { id: string; slug: string; deck: string; custom_deck: string | null; mode: string; async_window: string | null; state: string; host_voter_id: string | null; host_vacant_since: number | null; created_at: number; last_activity_at: number };
@@ -72,7 +72,7 @@ export function addVoter(
 }
 
 /** Read the full room state for the worker. roomId is populated at read time per spec §6. */
-export function getRoomState(sql: SqlStorage): RoomState {
+export function getRoomState(sql: SqlStorage): RoomReadState {
   const r = sql.exec<RoomRow>('SELECT * FROM room LIMIT 1').toArray()[0];
   if (!r) throw new Error('ROOM_NOT_FOUND');
   const room: Room = {
@@ -96,8 +96,18 @@ export function getRoomState(sql: SqlStorage): RoomState {
     connectionState: v.connection_state as Voter['connectionState'],
     lastSeenAt: v.last_seen_at, joinedAt: v.joined_at,
   }));
-  const stories = sql.exec<StoryRow>('SELECT * FROM story ORDER BY order_index ASC').toArray().map((s): Story => ({
-    id: s.id, roomId: room.id, orderIndex: s.order_index, text: s.text,
+  const stories = sql.exec<StoryRow>('SELECT * FROM story ORDER BY order_index ASC')
+    .toArray().map((s) => mapStoryRow(s, room.id));
+  const votes = sql.exec<VoteRow>('SELECT * FROM vote ORDER BY submitted_at ASC').toArray().map((v): Vote => ({
+    storyId: v.story_id, voterId: v.voter_id, points: v.points,
+    confidence: v.confidence, submittedAt: v.submitted_at, updatedAt: v.updated_at,
+  }));
+  return { room, voters, stories, votes };
+}
+
+function mapStoryRow(s: StoryRow, roomId: string): Story {
+  return {
+    id: s.id, roomId, orderIndex: s.order_index, text: s.text,
     externalId: s.external_id ?? undefined,
     externalUrl: s.external_url ?? undefined,
     description: s.description ?? undefined,
@@ -108,10 +118,70 @@ export function getRoomState(sql: SqlStorage): RoomState {
     createdAt: s.created_at,
     openedAt: s.opened_at ?? undefined,
     revealedAt: s.revealed_at ?? undefined,
-  }));
-  const votes = sql.exec<VoteRow>('SELECT * FROM vote ORDER BY submitted_at ASC').toArray().map((v): Vote => ({
-    storyId: v.story_id, voterId: v.voter_id, points: v.points,
-    confidence: v.confidence, submittedAt: v.submitted_at, updatedAt: v.updated_at,
-  }));
-  return { room, voters, stories, votes };
+  };
+}
+
+/** Add a story to the queue with a sparse order index (100, 200, 300…). */
+export function addStory(
+  sql: SqlStorage,
+  params: {
+    storyId: string; text: string; externalId?: string; externalUrl?: string;
+    description?: string; now: number;
+  },
+): Story {
+  const roomRow = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0];
+  if (!roomRow) throw new Error('ROOM_NOT_FOUND');
+  const maxRow = sql.exec<{ max: number | null }>('SELECT MAX(order_index) AS max FROM story').toArray()[0];
+  const orderIndex = (maxRow?.max ?? 0) + 100;
+  sql.exec(
+    `INSERT INTO story (id, order_index, text, external_id, external_url, description,
+      state, final_estimate, edited, split_parent_id, created_at, opened_at, revealed_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, 0, NULL, ?, NULL, NULL)`,
+    params.storyId, orderIndex, params.text,
+    params.externalId ?? null, params.externalUrl ?? null, params.description ?? null,
+    params.now,
+  );
+  return {
+    id: params.storyId,
+    roomId: roomRow.id,
+    orderIndex,
+    text: params.text,
+    externalId: params.externalId,
+    externalUrl: params.externalUrl,
+    description: params.description,
+    state: 'pending',
+    edited: false,
+    createdAt: params.now,
+  };
+}
+
+/** Update story fields. Sets edited=1 only if votes already exist for the story. */
+export function editStory(
+  sql: SqlStorage,
+  params: {
+    storyId: string; text?: string; externalId?: string; externalUrl?: string;
+    description?: string; now: number;
+  },
+): Story {
+  void params.now; // reserved for audit-event timestamp once that lands
+  const existing = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!existing) throw new Error('STORY_NOT_FOUND');
+
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  if (params.text !== undefined) { sets.push('text = ?'); args.push(params.text); }
+  if (params.externalId !== undefined) { sets.push('external_id = ?'); args.push(params.externalId); }
+  if (params.externalUrl !== undefined) { sets.push('external_url = ?'); args.push(params.externalUrl); }
+  if (params.description !== undefined) { sets.push('description = ?'); args.push(params.description); }
+
+  if (sets.length > 0) {
+    const votes = sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM vote WHERE story_id = ?', params.storyId).toArray()[0];
+    if ((votes?.n ?? 0) > 0) sets.push('edited = 1');
+    args.push(params.storyId);
+    sql.exec(`UPDATE story SET ${sets.join(', ')} WHERE id = ?`, ...args);
+  }
+
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  const roomId = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0]!.id;
+  return mapStoryRow(updated, roomId);
 }
