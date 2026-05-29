@@ -18,7 +18,7 @@ export interface Env {
   POINTE_SLUGS: KVNamespace;
 }
 
-const SESSION_TTL_SECONDS = 2592000;
+const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
 
 function json(body: unknown, status: number, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
@@ -30,6 +30,18 @@ function json(body: unknown, status: number, extraHeaders?: Record<string, strin
 function errorResponse(code: string, message: string, status: number): Response {
   const body: ApiError = { code, message };
   return json(body, status);
+}
+
+/**
+ * Build the SI-03 session cookie. Scoped tight: SameSite=Strict, room-only Path, 24h TTL.
+ * Non-host voters get their cookie on JOIN over the realtime upgrade response in R2 —
+ * out of scope here.
+ */
+export function buildSessionCookie(hostVoterId: string, slug: string): string {
+  return (
+    `pointe_session=${hostVoterId}; HttpOnly; Secure; SameSite=Strict; ` +
+    `Path=/api/rooms/${slug}; Max-Age=${SESSION_TTL_SECONDS}`
+  );
 }
 
 async function createRoomEndpoint(request: Request, env: Env): Promise<Response> {
@@ -86,10 +98,7 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
     voterId: hostVoterId,
     wsUrl: `wss://${host}/api/rooms/${slug}/ws`,
   };
-  const cookie =
-    `pointe_session=${hostVoterId}; HttpOnly; Secure; SameSite=Lax; ` +
-    `Path=/; Max-Age=${SESSION_TTL_SECONDS}`;
-  return json(responseBody, 201, { 'Set-Cookie': cookie });
+  return json(responseBody, 201, { 'Set-Cookie': buildSessionCookie(hostVoterId, slug) });
 }
 
 /** GET /api/rooms/:slug → minimal `{state, deck}`. Full state comes over WS in R2. */
