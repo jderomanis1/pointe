@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { initSchema } from '../src/schema';
-import { createRoom, addVoter, addStory, editStory, getRoomState } from '../src/operations';
+import {
+  createRoom, addVoter, addStory, editStory,
+  openVoting, castVote, revealVotes, commitStory,
+  getRoomState,
+} from '../src/operations';
 import { createMockDoState } from './helpers/mockDoState';
 
 function setup() {
@@ -99,7 +103,7 @@ describe('operations', () => {
     const sql = setup();
     createRoom(sql, baseParams);
     addStory(sql, { storyId: 's-1', text: 'old text', now: NOW + 1 });
-    const updated = editStory(sql, { storyId: 's-1', text: 'new text', now: NOW + 2 });
+    const updated = editStory(sql, { storyId: 's-1', text: 'new text' });
     expect(updated.text).toBe('new text');
     expect(updated.edited).toBe(false);
     const state = getRoomState(sql);
@@ -117,7 +121,7 @@ describe('operations', () => {
        VALUES ('s-1', 'host-1', '5', 3, ?, ?)`,
       NOW + 1, NOW + 1,
     );
-    const updated = editStory(sql, { storyId: 's-1', text: 'edited text', now: NOW + 2 });
+    const updated = editStory(sql, { storyId: 's-1', text: 'edited text' });
     expect(updated.text).toBe('edited text');
     expect(updated.edited).toBe(true);
   });
@@ -125,6 +129,151 @@ describe('operations', () => {
   it('editStory: throws STORY_NOT_FOUND for unknown storyId', () => {
     const sql = setup();
     createRoom(sql, baseParams);
-    expect(() => editStory(sql, { storyId: 'nope', text: 'x', now: NOW + 1 })).toThrow('STORY_NOT_FOUND');
+    expect(() => editStory(sql, { storyId: 'nope', text: 'x' })).toThrow('STORY_NOT_FOUND');
+  });
+
+  // ---- openVoting ----
+
+  it('openVoting: pending → active and sets openedAt', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    const updated = openVoting(sql, { storyId: 's-1', now: NOW + 2 });
+    expect(updated.state).toBe('active');
+    expect(updated.openedAt).toBe(NOW + 2);
+  });
+
+  it('openVoting: throws ANOTHER_STORY_ACTIVE when another story is already active', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    addStory(sql, { storyId: 's-2', text: 'two', now: NOW + 2 });
+    openVoting(sql, { storyId: 's-1', now: NOW + 3 });
+    expect(() => openVoting(sql, { storyId: 's-2', now: NOW + 4 })).toThrow('ANOTHER_STORY_ACTIVE');
+  });
+
+  it('openVoting: throws STORY_NOT_PENDING when the story is not pending', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    openVoting(sql, { storyId: 's-1', now: NOW + 2 });
+    expect(() => openVoting(sql, { storyId: 's-1', now: NOW + 3 })).toThrow('STORY_NOT_PENDING');
+  });
+
+  it('openVoting: throws STORY_NOT_FOUND for missing storyId', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    expect(() => openVoting(sql, { storyId: 'nope', now: NOW + 1 })).toThrow('STORY_NOT_FOUND');
+  });
+
+  // ---- castVote ----
+
+  function setupActive() {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    openVoting(sql, { storyId: 's-1', now: NOW + 2 });
+    return sql;
+  }
+
+  it('castVote: records the vote and it appears in getRoomState().votes', () => {
+    const sql = setupActive();
+    castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 3, now: NOW + 10 });
+    const state = getRoomState(sql);
+    expect(state.votes).toHaveLength(1);
+    expect(state.votes[0]).toMatchObject({
+      storyId: 's-1', voterId: 'host-1', points: '5', confidence: 3,
+      submittedAt: NOW + 10, updatedAt: NOW + 10,
+    });
+  });
+
+  it('castVote: re-cast updates the same row; submittedAt stable, updatedAt advances', () => {
+    const sql = setupActive();
+    const first = castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 3, now: NOW + 10 });
+    expect(first.submittedAt).toBe(NOW + 10);
+    expect(first.updatedAt).toBe(NOW + 10);
+
+    const second = castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '8', confidence: 5, now: NOW + 20 });
+    expect(second.points).toBe('8');
+    expect(second.confidence).toBe(5);
+    expect(second.submittedAt).toBe(NOW + 10); // preserved
+    expect(second.updatedAt).toBe(NOW + 20);   // advanced
+
+    const state = getRoomState(sql);
+    expect(state.votes).toHaveLength(1); // still one row (composite PK upsert)
+    expect(state.votes[0].points).toBe('8');
+  });
+
+  it('castVote: throws STORY_NOT_ACTIVE when the story is not active', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    // Story is still pending — not active.
+    expect(() =>
+      castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 3, now: NOW + 2 }),
+    ).toThrow('STORY_NOT_ACTIVE');
+  });
+
+  it('castVote: throws SPECTATOR_CANNOT_VOTE when the voter is a spectator', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'spec-1', displayName: 'Spec', role: 'spectator', now: NOW + 5 });
+    expect(() =>
+      castVote(sql, { storyId: 's-1', voterId: 'spec-1', points: '5', confidence: 3, now: NOW + 10 }),
+    ).toThrow('SPECTATOR_CANNOT_VOTE');
+  });
+
+  it('castVote: throws VOTER_NOT_FOUND for unknown voterId', () => {
+    const sql = setupActive();
+    expect(() =>
+      castVote(sql, { storyId: 's-1', voterId: 'nobody', points: '5', confidence: 3, now: NOW + 10 }),
+    ).toThrow('VOTER_NOT_FOUND');
+  });
+
+  it('castVote: rejects confidence outside 1–5 with INVALID_CONFIDENCE', () => {
+    const sql = setupActive();
+    expect(() =>
+      castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 0, now: NOW + 10 }),
+    ).toThrow('INVALID_CONFIDENCE');
+    expect(() =>
+      castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 6, now: NOW + 11 }),
+    ).toThrow('INVALID_CONFIDENCE');
+  });
+
+  // ---- revealVotes ----
+
+  it('revealVotes: active → revealed; sets revealedAt; returns the votes', () => {
+    const sql = setupActive();
+    castVote(sql, { storyId: 's-1', voterId: 'host-1', points: '5', confidence: 3, now: NOW + 10 });
+    const result = revealVotes(sql, { storyId: 's-1', now: NOW + 20 });
+    expect(result.story.state).toBe('revealed');
+    expect(result.story.revealedAt).toBe(NOW + 20);
+    expect(result.votes).toHaveLength(1);
+    expect(result.votes[0]).toMatchObject({ storyId: 's-1', voterId: 'host-1', points: '5' });
+  });
+
+  it('revealVotes: throws STORY_NOT_ACTIVE on a non-active story', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    // Story is pending, never opened.
+    expect(() => revealVotes(sql, { storyId: 's-1', now: NOW + 2 })).toThrow('STORY_NOT_ACTIVE');
+  });
+
+  // ---- commitStory ----
+
+  it('commitStory: revealed → committed and sets finalEstimate', () => {
+    const sql = setupActive();
+    revealVotes(sql, { storyId: 's-1', now: NOW + 20 });
+    const committed = commitStory(sql, { storyId: 's-1', finalEstimate: '5', now: NOW + 30 });
+    expect(committed.state).toBe('committed');
+    expect(committed.finalEstimate).toBe('5');
+  });
+
+  it('commitStory: throws STORY_NOT_REVEALED on a non-revealed story', () => {
+    const sql = setupActive();
+    // Story is active but not revealed yet.
+    expect(() =>
+      commitStory(sql, { storyId: 's-1', finalEstimate: '5', now: NOW + 30 }),
+    ).toThrow('STORY_NOT_REVEALED');
   });
 });

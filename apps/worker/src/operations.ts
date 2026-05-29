@@ -160,10 +160,9 @@ export function editStory(
   sql: SqlStorage,
   params: {
     storyId: string; text?: string; externalId?: string; externalUrl?: string;
-    description?: string; now: number;
+    description?: string;
   },
 ): Story {
-  void params.now; // reserved for audit-event timestamp once that lands
   const existing = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0];
   if (!existing) throw new Error('STORY_NOT_FOUND');
 
@@ -184,4 +183,92 @@ export function editStory(
   const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
   const roomId = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0]!.id;
   return mapStoryRow(updated, roomId);
+}
+
+function mapVoteRow(v: VoteRow): Vote {
+  return {
+    storyId: v.story_id, voterId: v.voter_id, points: v.points,
+    confidence: v.confidence, submittedAt: v.submitted_at, updatedAt: v.updated_at,
+  };
+}
+
+function getRoomId(sql: SqlStorage): string {
+  const r = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0];
+  if (!r) throw new Error('ROOM_NOT_FOUND');
+  return r.id;
+}
+
+/** Transition a pending story to active. Only one story may be active at a time. */
+export function openVoting(sql: SqlStorage, params: { storyId: string; now: number }): Story {
+  const story = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!story) throw new Error('STORY_NOT_FOUND');
+  if (story.state !== 'pending') throw new Error('STORY_NOT_PENDING');
+  const active = sql.exec<{ id: string }>(`SELECT id FROM story WHERE state = 'active' LIMIT 1`).toArray()[0];
+  if (active) throw new Error('ANOTHER_STORY_ACTIVE');
+  sql.exec(`UPDATE story SET state = 'active', opened_at = ? WHERE id = ?`, params.now, params.storyId);
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  return mapStoryRow(updated, getRoomId(sql));
+}
+
+/**
+ * Cast or re-cast a vote on the currently-active story.
+ * On re-cast (same story_id, voter_id), points/confidence/updatedAt change; submittedAt is preserved.
+ */
+export function castVote(
+  sql: SqlStorage,
+  params: { storyId: string; voterId: string; points: string; confidence: number; now: number },
+): Vote {
+  const story = sql.exec<{ state: string }>('SELECT state FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!story || story.state !== 'active') throw new Error('STORY_NOT_ACTIVE');
+  const voter = sql.exec<{ role: string }>('SELECT role FROM voter WHERE id = ?', params.voterId).toArray()[0];
+  if (!voter) throw new Error('VOTER_NOT_FOUND');
+  if (voter.role === 'spectator') throw new Error('SPECTATOR_CANNOT_VOTE');
+  if (!Number.isInteger(params.confidence) || params.confidence < 1 || params.confidence > 5) {
+    throw new Error('INVALID_CONFIDENCE');
+  }
+  sql.exec(
+    `INSERT INTO vote (story_id, voter_id, points, confidence, submitted_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(story_id, voter_id) DO UPDATE SET
+       points = excluded.points,
+       confidence = excluded.confidence,
+       updated_at = excluded.updated_at`,
+    params.storyId, params.voterId, params.points, params.confidence, params.now, params.now,
+  );
+  const v = sql
+    .exec<VoteRow>('SELECT * FROM vote WHERE story_id = ? AND voter_id = ?', params.storyId, params.voterId)
+    .toArray()[0]!;
+  return mapVoteRow(v);
+}
+
+/**
+ * Transition an active story to revealed and return the raw votes.
+ * Reveal-time statistics are deferred to R3 — OQ-008.
+ */
+export function revealVotes(
+  sql: SqlStorage,
+  params: { storyId: string; now: number },
+): { story: Story; votes: Vote[] } {
+  const story = sql.exec<{ state: string }>('SELECT state FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!story || story.state !== 'active') throw new Error('STORY_NOT_ACTIVE');
+  sql.exec(`UPDATE story SET state = 'revealed', revealed_at = ? WHERE id = ?`, params.now, params.storyId);
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  const votes = sql
+    .exec<VoteRow>('SELECT * FROM vote WHERE story_id = ? ORDER BY submitted_at ASC', params.storyId)
+    .toArray()
+    .map(mapVoteRow);
+  return { story: mapStoryRow(updated, getRoomId(sql)), votes };
+}
+
+/** Commit a revealed story with the agreed final estimate. */
+export function commitStory(
+  sql: SqlStorage,
+  params: { storyId: string; finalEstimate: string; now: number },
+): Story {
+  void params.now; // reserved for audit-event timestamp
+  const story = sql.exec<{ state: string }>('SELECT state FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!story || story.state !== 'revealed') throw new Error('STORY_NOT_REVEALED');
+  sql.exec(`UPDATE story SET state = 'committed', final_estimate = ? WHERE id = ?`, params.finalEstimate, params.storyId);
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  return mapStoryRow(updated, getRoomId(sql));
 }
