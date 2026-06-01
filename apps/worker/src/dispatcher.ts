@@ -2,11 +2,11 @@ import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
   AddStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
   JoinRoomPayload, OpenVotingPayload, RoomSnapshot, ServerMessageType,
-  SnapshotStory, VoterRole,
+  SnapshotStory, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import {
-  addStory, editStory, openVoting, resumeOrAddVoter,
+  addStory, castVote, editStory, openVoting, resumeOrAddVoter,
   getHostVoterId, getRoomState,
 } from './operations';
 import { getAttachment } from './broadcast';
@@ -98,6 +98,8 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleEditStory(ctx);
     case 'OPEN_VOTING':
       return handleOpenVoting(ctx);
+    case 'VOTE_CAST':
+      return handleVoteCast(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
@@ -181,6 +183,40 @@ function handleOpenVoting(ctx: HandlerCtx): Envelope[] {
     openVoting(ctx.sql, { storyId: p.storyId, now: Date.now() });
     ctx.markProcessed();
     ctx.broadcast([{ kind: 'voting_opened', storyId: p.storyId }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+/**
+ * Any bound voter may cast. Attribution comes from `ctx.voterId` (SI-01) — payload `voterId`
+ * is ignored. On success, broadcast emits BOTH `vote_value` (caster-only via projection)
+ * AND `voter_voted` (presence to everyone). projectChangesFor enforces the split.
+ */
+function handleVoteCast(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  if (!ctx.voterId) {
+    return [makeError('NOT_JOINED', 'JOIN_ROOM first', false, ctx.envelope.id)];
+  }
+  if (!isVoteCastPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'VOTE_CAST payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    castVote(ctx.sql, {
+      storyId: p.storyId,
+      voterId: ctx.voterId,
+      points: p.points,
+      confidence: p.confidence,
+      now: Date.now(),
+    });
+    ctx.markProcessed();
+    ctx.broadcast([
+      { kind: 'vote_value', storyId: p.storyId, points: p.points, confidence: p.confidence },
+      { kind: 'voter_voted', storyId: p.storyId, voterId: ctx.voterId },
+    ]);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';
@@ -322,4 +358,14 @@ function isEditStoryPayload(p: unknown): p is EditStoryPayload {
 function isOpenVotingPayload(p: unknown): p is OpenVotingPayload {
   return !!p && typeof p === 'object' &&
     typeof (p as Record<string, unknown>).storyId === 'string';
+}
+
+function isVoteCastPayload(p: unknown): p is VoteCastPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.storyId !== 'string' || o.storyId.length === 0) return false;
+  if (typeof o.points !== 'string' || o.points.length === 0) return false;
+  if (typeof o.confidence !== 'number' || !Number.isInteger(o.confidence)) return false;
+  if (o.confidence < 1 || o.confidence > 5) return false;
+  return true;
 }

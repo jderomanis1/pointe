@@ -232,3 +232,9 @@ export type EditStoryPayload = {
 };
 
 export type OpenVotingPayload = { storyId: string };
+
+/**
+ * VOTE_CAST payload (R3.ii). Note: NO `voterId` field — attribution comes from the
+ * socket binding (SI-01), never from the payload.
+ */
+export type VoteCastPayload = { storyId: string; points: string; confidence: number };

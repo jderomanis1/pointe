@@ -77,9 +77,10 @@ describe('dispatcher.handleMessage — R2.ii pipe (reply id echo correction)', (
   it('not-yet-implemented type → ERROR NOT_IMPLEMENTED; reply id echoes', () => {
     const sql = setupRoom();
     const { ws } = fakeWs();
-    const out = handleMessage(sql, ws, env('VOTE_CAST', 'vc-1'));
+    // REVEAL_VOTES is still in the NOT_IMPLEMENTED default branch (lands in R3.iii).
+    const out = handleMessage(sql, ws, env('REVEAL_VOTES', 'rv-1'));
     expect((out[0].payload as ErrorPayload).code).toBe('NOT_IMPLEMENTED');
-    expect(out[0].id).toBe('vc-1');
+    expect(out[0].id).toBe('rv-1');
   });
 
   it('non-mutating PING does NOT record in processed_message (record-on-success refinement)', () => {
@@ -363,5 +364,178 @@ describe('dispatcher.handleMessage — story-queue messages (R3.i)', () => {
     );
     expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
     expect(calls).toEqual([]);
+  });
+});
+
+describe('dispatcher.handleMessage — VOTE_CAST (R3.ii, anti-anchoring split)', () => {
+  function setupActive() {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 'st-1', text: 'one', now: NOW + 1 });
+    openVoting(sql, { storyId: 'st-1', now: NOW + 2 });
+    return sql;
+  }
+
+  function voteEnv(id: string, payload: object) {
+    return JSON.stringify({ v: 1, type: 'VOTE_CAST', id, at: 0, payload });
+  }
+
+  it('LEAK TEST: vote_value reaches the caster ONLY; peer DELTA carries presence with no points/confidence', async () => {
+    // Real broadcast helper (not a capturing stub) so projection is genuinely exercised on the wire.
+    const { broadcast } = await import('../src/broadcast');
+
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 3 });
+    addVoter(sql, { voterId: 'v-B', displayName: 'B', now: NOW + 4 });
+
+    const sockA = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const sockB = fakeWs({ voterId: 'v-B', role: 'voter' });
+    const ctx = {
+      getWebSockets: () => [sockA.ws, sockB.ws],
+    } as unknown as import('@cloudflare/workers-types').DurableObjectState;
+
+    const realBroadcast: Parameters<typeof handleMessage>[3] = (changes, opts) =>
+      broadcast(ctx, changes, opts);
+
+    const out = handleMessage(
+      sql, sockA.ws,
+      voteEnv('vc-leak', { storyId: 'st-1', points: '8', confidence: 4 }),
+      realBroadcast,
+    );
+    expect(out).toEqual([]);
+
+    // Caster receives the full pair.
+    expect(sockA.sent).toHaveLength(1);
+    const aEnv = JSON.parse(sockA.sent[0]) as { type: string; payload: { changes: DeltaChange[] } };
+    expect(aEnv.type).toBe('DELTA');
+    expect(aEnv.payload.changes).toEqual([
+      { kind: 'vote_value', storyId: 'st-1', points: '8', confidence: 4 },
+      { kind: 'voter_voted', storyId: 'st-1', voterId: 'v-A' },
+    ]);
+
+    // Peer receives presence ONLY — strictly no points/confidence anywhere in the payload.
+    expect(sockB.sent).toHaveLength(1);
+    const bEnv = JSON.parse(sockB.sent[0]) as { type: string; payload: { changes: DeltaChange[] } };
+    expect(bEnv.payload.changes).toEqual([
+      { kind: 'voter_voted', storyId: 'st-1', voterId: 'v-A' },
+    ]);
+    const bRaw = sockB.sent[0];
+    expect(bRaw).not.toContain('"points"');
+    expect(bRaw).not.toContain('"confidence"');
+    expect(bRaw).not.toContain('vote_value');
+  });
+
+  it('attribution: payload-supplied `voterId` is ignored; vote attributed to the binding', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 3 });
+    const { ws } = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const { calls, broadcast } = captureBroadcasts();
+    const raw = JSON.stringify({
+      v: 1, type: 'VOTE_CAST', id: 'vc-spoof', at: 0,
+      payload: { storyId: 'st-1', points: '5', confidence: 3, voterId: 'SPOOFED' },
+    });
+    const out = handleMessage(sql, ws, raw, broadcast);
+    expect(out).toEqual([]);
+    const row = sql
+      .exec<{ voter_id: string }>(`SELECT voter_id FROM vote WHERE story_id = 'st-1'`)
+      .toArray()[0];
+    expect(row?.voter_id).toBe('v-A');
+    expect(calls[0].changes[1]).toEqual({ kind: 'voter_voted', storyId: 'st-1', voterId: 'v-A' });
+  });
+
+  it('spectator rejected: ERROR SPECTATOR_CANNOT_VOTE; no vote; no broadcast', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-spec', displayName: 'Spec', role: 'spectator', now: NOW + 3 });
+    const { ws } = fakeWs({ voterId: 'v-spec', role: 'spectator' });
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      voteEnv('vc-spec', { storyId: 'st-1', points: '5', confidence: 3 }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('SPECTATOR_CANNOT_VOTE');
+    expect(calls).toEqual([]);
+    const rows = sql.exec(`SELECT * FROM vote`).toArray();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('not-joined: ERROR NOT_JOINED', () => {
+    const sql = setupActive();
+    const { ws } = fakeWs(); // no attachment
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      voteEnv('vc-nj', { storyId: 'st-1', points: '5', confidence: 3 }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_JOINED');
+    expect(calls).toEqual([]);
+  });
+
+  it('story not active: ERROR STORY_NOT_ACTIVE (also covers missing/revealed/pending)', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 'st-pending', text: 'p', now: NOW + 1 });
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 2 });
+    const { ws } = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      voteEnv('vc-na', { storyId: 'st-pending', points: '5', confidence: 3 }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('STORY_NOT_ACTIVE');
+    expect(calls).toEqual([]);
+  });
+
+  it('bad confidence (0 and 6): ERROR INVALID_PAYLOAD; no vote', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 3 });
+    const { ws } = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const { calls, broadcast } = captureBroadcasts();
+    const lo = handleMessage(
+      sql, ws, voteEnv('vc-lo', { storyId: 'st-1', points: '5', confidence: 0 }), broadcast,
+    );
+    const hi = handleMessage(
+      sql, ws, voteEnv('vc-hi', { storyId: 'st-1', points: '5', confidence: 6 }), broadcast,
+    );
+    expect((lo[0].payload as ErrorPayload).code).toBe('INVALID_PAYLOAD');
+    expect((hi[0].payload as ErrorPayload).code).toBe('INVALID_PAYLOAD');
+    expect(calls).toEqual([]);
+    expect(sql.exec(`SELECT * FROM vote`).toArray()).toHaveLength(0);
+  });
+
+  it('re-cast (new envelope id): updates same row; submitted_at preserved; second broadcast emitted', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 3 });
+    const { ws } = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const { calls, broadcast } = captureBroadcasts();
+    handleMessage(
+      sql, ws, voteEnv('vc-1', { storyId: 'st-1', points: '5', confidence: 3 }), broadcast,
+    );
+    handleMessage(
+      sql, ws, voteEnv('vc-2', { storyId: 'st-1', points: '8', confidence: 4 }), broadcast,
+    );
+    const rows = sql
+      .exec<{ voter_id: string; points: string; confidence: number; submitted_at: number; updated_at: number }>(
+        `SELECT * FROM vote WHERE story_id = 'st-1'`,
+      ).toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].points).toBe('8');
+    expect(rows[0].confidence).toBe(4);
+    expect(rows[0].updated_at).toBeGreaterThanOrEqual(rows[0].submitted_at);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('replay (same envelope id): no second broadcast; alreadyProcessed short-circuits', () => {
+    const sql = setupActive();
+    addVoter(sql, { voterId: 'v-A', displayName: 'A', now: NOW + 3 });
+    const { ws } = fakeWs({ voterId: 'v-A', role: 'voter' });
+    const { calls, broadcast } = captureBroadcasts();
+    const raw = voteEnv('vc-dup', { storyId: 'st-1', points: '5', confidence: 3 });
+    handleMessage(sql, ws, raw, broadcast);
+    handleMessage(sql, ws, raw, broadcast);
+    expect(calls).toHaveLength(1);
+    const procRows = sql
+      .exec(`SELECT id FROM processed_message WHERE id = 'vc-dup'`).toArray();
+    expect(procRows).toHaveLength(1);
   });
 });
