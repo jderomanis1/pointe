@@ -1,16 +1,34 @@
-import type { SqlStorage } from '@cloudflare/workers-types';
-import type { Envelope, ErrorPayload, ServerMessageType } from '@pointe/shared';
+import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
+import type {
+  Envelope, ErrorPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
+  SnapshotStory, VoterRole,
+} from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
+import { resumeOrAddVoter, getRoomState } from './operations';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
+const REVEALED_HISTORY_LIMIT = 3;
+
+type HandlerCtx = {
+  sql: SqlStorage;
+  ws: WebSocket;
+  envelope: Envelope;
+  /** From `ws.deserializeAttachment()`. null until JOIN binds the socket. */
+  voterId: string | null;
+  /** True if this envelope id was already in `processed_message` within the 5-min window. */
+  alreadyProcessed: boolean;
+};
 
 /**
- * Pure-ish dispatcher: parses + validates + dedupes the envelope and returns the
- * envelope(s) the caller (webSocketMessage in room.ts) should `ws.send(JSON.stringify(...))`.
- * Never throws. Server-stamps `at` on every emitted envelope; the client's `at` is ignored.
+ * Parse + validate + dedupe; route to a handler. Never throws.
+ * Server-stamps `at` and echoes the request `id` on replies (unsolicited messages mint).
  */
-export function handleMessage(sql: SqlStorage, raw: string | ArrayBuffer): Envelope[] {
-  // Only JSON text is supported; binary frames are rejected.
+export function handleMessage(
+  sql: SqlStorage,
+  ws: WebSocket,
+  raw: string | ArrayBuffer,
+): Envelope[] {
+  // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
     return [makeError('BAD_ENVELOPE', 'Binary frames are not supported', false)];
   }
@@ -23,46 +41,127 @@ export function handleMessage(sql: SqlStorage, raw: string | ArrayBuffer): Envel
   if (!isValidEnvelope(parsed)) {
     return [makeError('BAD_ENVELOPE', 'Envelope shape invalid', false)];
   }
-  if (parsed.v !== PROTOCOL_VERSION) {
-    return [makeError('UNSUPPORTED_VERSION', `Unsupported protocol version: ${parsed.v}`, false)];
+  // `type` may be any string here; unknown types are routed to NOT_IMPLEMENTED by `route`.
+  const envelope = parsed as Envelope;
+  // Post-parse: echo request id from here on.
+  if (envelope.v !== PROTOCOL_VERSION) {
+    return [makeError('UNSUPPORTED_VERSION', `Unsupported protocol version: ${envelope.v}`, false, envelope.id)];
   }
 
-  // Idempotency: durable dedupe with 5-min TTL. Opportunistic cleanup of stale rows.
+  // Idempotency: durable 5-min dedupe + opportunistic cleanup.
   const now = Date.now();
   sql.exec('DELETE FROM processed_message WHERE at < ?', now - FIVE_MIN_MS);
   const existing = sql
-    .exec<{ at: number }>('SELECT at FROM processed_message WHERE id = ?', parsed.id)
+    .exec<{ at: number }>('SELECT at FROM processed_message WHERE id = ?', envelope.id)
     .toArray()[0];
-  const isReplay = existing !== undefined && now - existing.at < FIVE_MIN_MS;
-  if (!isReplay) {
-    sql.exec('INSERT OR REPLACE INTO processed_message (id, at) VALUES (?, ?)', parsed.id, now);
+  const alreadyProcessed = existing !== undefined && now - existing.at < FIVE_MIN_MS;
+  if (!alreadyProcessed) {
+    sql.exec('INSERT OR REPLACE INTO processed_message (id, at) VALUES (?, ?)', envelope.id, now);
   }
-  // For RECONNECT_PING (and the NOT_IMPLEMENTED scaffolding), there are no state effects to
-  // duplicate — replays re-emit the same ack. Once domain messages land in R2.iii+, their
-  // handlers will check the replay flag before applying state changes.
 
-  return routeByType(parsed.type);
+  return route({ sql, ws, envelope, voterId: getVoterIdFromWs(ws), alreadyProcessed });
 }
 
-function routeByType(type: string): Envelope[] {
-  if (type === 'RECONNECT_PING') {
-    return [makeEnvelope('PONG', {})];
+function route(ctx: HandlerCtx): Envelope[] {
+  switch (ctx.envelope.type) {
+    case 'RECONNECT_PING':
+      return [makeEnvelope('PONG', {}, ctx.envelope.id)];
+    case 'JOIN_ROOM':
+      return handleJoinRoom(ctx);
+    default:
+      return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
-  return [makeError('NOT_IMPLEMENTED', `${type} arrives in a later task`, false)];
 }
 
-function makeEnvelope<T>(type: ServerMessageType, payload: T): Envelope<T> {
+function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
+  const { sql, ws, envelope } = ctx;
+  if (!isJoinRoomPayload(envelope.payload)) {
+    return [makeError('BAD_PAYLOAD', 'JOIN_ROOM payload invalid', false, envelope.id)];
+  }
+  const payload = envelope.payload;
+
+  let voterId: string;
+  if (ctx.voterId) {
+    // Re-JOIN on a live socket — reuse the existing binding.
+    voterId = ctx.voterId;
+  } else {
+    try {
+      const voter = resumeOrAddVoter(sql, {
+        voterId: crypto.randomUUID(),
+        resumeVoterId: payload.resumeVoterId,
+        displayName: payload.displayName,
+        role: payload.role,
+        now: Date.now(),
+      });
+      voterId = voter.id;
+      // SI-01: bind identity on the socket. Survives hibernation.
+      ws.serializeAttachment({ voterId: voter.id, role: voter.role });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : 'INTERNAL';
+      return [makeError(code, code, false, envelope.id)];
+    }
+  }
+
+  const snapshot = buildSnapshot(sql, voterId);
+  return [makeEnvelope('SNAPSHOT_RESPONSE', snapshot, envelope.id)];
+}
+
+/** Build the snapshot with anti-anchoring + scope limit. */
+function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
+  const state = getRoomState(sql);
+  const me = state.voters.find((v) => v.id === voterId);
+  if (!me) throw new Error('VOTER_NOT_FOUND');
+
+  const active = state.stories.find((s) => s.state === 'active');
+  const revealed = state.stories
+    .filter((s) => s.state === 'revealed' || s.state === 'committed')
+    .sort((a, b) => (a.revealedAt ?? 0) - (b.revealedAt ?? 0))
+    .slice(-REVEALED_HISTORY_LIMIT);
+
+  const snapStories: SnapshotStory[] = [];
+  if (active) {
+    // Anti-anchoring: active story carries NO votes.
+    snapStories.push({ ...active, votes: [] });
+  }
+  for (const story of revealed) {
+    snapStories.push({ ...story, votes: state.votes.filter((v) => v.storyId === story.id) });
+  }
+
+  return {
+    room: state.room,
+    voters: state.voters,
+    stories: snapStories,
+    you: { voterId, role: me.role as VoterRole },
+  };
+}
+
+// ---- helpers ----
+
+function makeEnvelope<T>(type: ServerMessageType, payload: T, id?: string): Envelope<T> {
   return {
     v: PROTOCOL_VERSION,
     type,
-    id: crypto.randomUUID(),
+    id: id ?? crypto.randomUUID(),
     at: Date.now(),
     payload,
   };
 }
 
-function makeError(code: string, message: string, retriable: boolean): Envelope<ErrorPayload> {
-  return makeEnvelope('ERROR', { code, message, retriable });
+function makeError(code: string, message: string, retriable: boolean, id?: string): Envelope<ErrorPayload> {
+  return makeEnvelope('ERROR', { code, message, retriable }, id);
+}
+
+function getVoterIdFromWs(ws: WebSocket): string | null {
+  try {
+    const att = ws.deserializeAttachment();
+    if (att && typeof att === 'object' && 'voterId' in att) {
+      const vid = (att as { voterId?: unknown }).voterId;
+      return typeof vid === 'string' ? vid : null;
+    }
+  } catch {
+    /* not bound */
+  }
+  return null;
 }
 
 function isValidEnvelope(
@@ -77,4 +176,13 @@ function isValidEnvelope(
     typeof e.at === 'number' &&
     'payload' in e
   );
+}
+
+function isJoinRoomPayload(p: unknown): p is JoinRoomPayload {
+  if (typeof p !== 'object' || p === null) return false;
+  const o = p as Record<string, unknown>;
+  if (o.slug !== undefined && typeof o.slug !== 'string') return false;
+  if (o.displayName !== undefined && typeof o.displayName !== 'string') return false;
+  if (o.resumeVoterId !== undefined && typeof o.resumeVoterId !== 'string') return false;
+  return o.role === 'voter' || o.role === 'spectator';
 }

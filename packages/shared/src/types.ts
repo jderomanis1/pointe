@@ -174,3 +174,27 @@ export type Envelope<T = unknown> = {
 };
 
 export type ErrorPayload = { code: string; message: string; retriable: boolean };
+
+// JOIN_ROOM + SNAPSHOT_RESPONSE (R2.iii).
+
+export type JoinRoomPayload = {
+  /** Informational — the DO already is the room. */
+  slug: string;
+  /** Required for a NEW voter; ignored on resume. */
+  displayName?: string;
+  /** From the cookie / prior session. */
+  resumeVoterId?: string;
+  /** Host is assigned by room creation, not claimed here. */
+  role: 'voter' | 'spectator';
+};
+
+/** A Story with votes optionally included (revealed/committed only — active is stripped). */
+export type SnapshotStory = Story & { votes?: Vote[] };
+
+export type RoomSnapshot = {
+  room: Room;
+  voters: Voter[];
+  stories: SnapshotStory[];
+  /** Server-bound identity (SI-01). */
+  you: { voterId: string; role: VoterRole };
+};

@@ -71,6 +71,49 @@ export function addVoter(
   };
 }
 
+/**
+ * JOIN flow: resume an existing voter (if `resumeVoterId` matches), else add a new one.
+ * On resume: connection_state → 'connected', last_seen_at updated; existing role/displayName kept.
+ * On new: requires `displayName`; throws DISPLAY_NAME_REQUIRED otherwise.
+ */
+export function resumeOrAddVoter(
+  sql: SqlStorage,
+  params: {
+    voterId: string;
+    resumeVoterId?: string;
+    displayName?: string;
+    role: VoterRole;
+    now: number;
+  },
+): Voter {
+  if (params.resumeVoterId) {
+    const existing = sql
+      .exec<{ id: string; display_name: string; role: string; joined_at: number }>(
+        'SELECT id, display_name, role, joined_at FROM voter WHERE id = ?',
+        params.resumeVoterId,
+      ).toArray()[0];
+    if (existing) {
+      sql.exec(
+        `UPDATE voter SET connection_state = 'connected', last_seen_at = ? WHERE id = ?`,
+        params.now, params.resumeVoterId,
+      );
+      const room = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0];
+      if (!room) throw new Error('ROOM_NOT_FOUND');
+      return {
+        id: existing.id, roomId: room.id, displayName: existing.display_name,
+        role: existing.role as VoterRole, connectionState: 'connected',
+        lastSeenAt: params.now, joinedAt: existing.joined_at,
+      };
+    }
+    // resumeVoterId given but not found → fall through to new voter.
+  }
+  if (!params.displayName) throw new Error('DISPLAY_NAME_REQUIRED');
+  return addVoter(sql, {
+    voterId: params.voterId, displayName: params.displayName,
+    role: params.role, now: params.now,
+  });
+}
+
 /** Read the full room state for the worker. roomId is populated at read time per spec §6. */
 export function getRoomState(sql: SqlStorage): RoomReadState {
   const r = sql.exec<RoomRow>('SELECT * FROM room LIMIT 1').toArray()[0];

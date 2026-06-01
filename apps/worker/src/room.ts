@@ -80,7 +80,7 @@ export class Room {
   // ---- Hibernation handlers (skeleton — R2.ii replaces webSocketMessage) ----
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const envelopes = handleMessage(this.sql, message);
+    const envelopes = handleMessage(this.sql, ws, message);
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
     }
