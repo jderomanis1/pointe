@@ -77,10 +77,10 @@ describe('dispatcher.handleMessage — R2.ii pipe (reply id echo correction)', (
   it('not-yet-implemented type → ERROR NOT_IMPLEMENTED; reply id echoes', () => {
     const sql = setupRoom();
     const { ws } = fakeWs();
-    // REVEAL_VOTES is still in the NOT_IMPLEMENTED default branch (lands in R3.iii).
-    const out = handleMessage(sql, ws, env('REVEAL_VOTES', 'rv-1'));
+    // REQUEST_AI is still in the NOT_IMPLEMENTED default branch (S8).
+    const out = handleMessage(sql, ws, env('REQUEST_AI', 'ai-1'));
     expect((out[0].payload as ErrorPayload).code).toBe('NOT_IMPLEMENTED');
-    expect(out[0].id).toBe('rv-1');
+    expect(out[0].id).toBe('ai-1');
   });
 
   it('non-mutating PING does NOT record in processed_message (record-on-success refinement)', () => {
@@ -537,5 +537,156 @@ describe('dispatcher.handleMessage — VOTE_CAST (R3.ii, anti-anchoring split)',
     const procRows = sql
       .exec(`SELECT id FROM processed_message WHERE id = 'vc-dup'`).toArray();
     expect(procRows).toHaveLength(1);
+  });
+});
+
+describe('dispatcher.handleMessage — REVEAL_VOTES + COMMIT_STORY (R3.iii)', () => {
+  const HOST = { voterId: 'host-1', role: 'host' as const };
+  const VOTER = { voterId: 'v-a', role: 'voter' as const };
+
+  function envOf(type: string, id: string, payload: object) {
+    return JSON.stringify({ v: 1, type, id, at: 0, payload });
+  }
+
+  function setupActiveWithVotes() {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 'st-1', text: 'one', now: NOW + 1 });
+    openVoting(sql, { storyId: 'st-1', now: NOW + 2 });
+    addVoter(sql, { voterId: 'v-a', displayName: 'A', now: NOW + 3 });
+    addVoter(sql, { voterId: 'v-b', displayName: 'B', now: NOW + 4 });
+    castVote(sql, { storyId: 'st-1', voterId: 'v-a', points: '5', confidence: 4, now: NOW + 5 });
+    castVote(sql, { storyId: 'st-1', voterId: 'v-b', points: '8', confidence: 3, now: NOW + 6 });
+    return sql;
+  }
+
+  // ---- REVEAL_VOTES ----
+
+  it('host reveals active story → votes_revealed broadcast with values + stats; story is revealed', () => {
+    const sql = setupActiveWithVotes();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, envOf('REVEAL_VOTES', 'rv-1', { storyId: 'st-1' }), broadcast);
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const change = calls[0].changes[0];
+    expect(change.kind).toBe('votes_revealed');
+    const r = change as Extract<DeltaChange, { kind: 'votes_revealed' }>;
+    expect(r.storyId).toBe('st-1');
+    expect(r.votes).toHaveLength(2);
+    expect(r.stats.median).toBe('5'); // indices 3,4 → tie → 3 → "5"
+    expect(r.stats.outliers).toEqual([]); // 5 and 8 are adjacent
+    expect(getRoomState(sql).stories.find((s) => s.id === 'st-1')?.state).toBe('revealed');
+  });
+
+  it('REVEAL inversion: non-caster receives values on the wire via projectChangesFor', async () => {
+    const { broadcast, projectChangesFor } = await import('../src/broadcast');
+    const sql = setupActiveWithVotes();
+    const sockHost = fakeWs(HOST);
+    const sockOther = fakeWs({ voterId: 'v-a', role: 'voter' }); // non-host viewer
+    const ctx = {
+      getWebSockets: () => [sockHost.ws, sockOther.ws],
+    } as unknown as import('@cloudflare/workers-types').DurableObjectState;
+    const realBroadcast: Parameters<typeof handleMessage>[3] = (changes, opts) =>
+      broadcast(ctx, changes, opts);
+
+    handleMessage(sql, sockHost.ws, envOf('REVEAL_VOTES', 'rv-pub', { storyId: 'st-1' }), realBroadcast);
+
+    // Non-caster (v-a) DOES receive vote values now — inversion is intended.
+    expect(sockOther.sent).toHaveLength(1);
+    const env = JSON.parse(sockOther.sent[0]) as { payload: { changes: DeltaChange[] } };
+    const reveal = env.payload.changes[0] as Extract<DeltaChange, { kind: 'votes_revealed' }>;
+    expect(reveal.kind).toBe('votes_revealed');
+    expect(reveal.votes.find((v) => v.voterId === 'v-b')?.points).toBe('8'); // peer's value visible
+    expect(reveal.votes.find((v) => v.voterId === 'v-b')?.confidence).toBe(3);
+
+    // Sanity: projectChangesFor still drops `vote_value` for non-caster (pre-reveal rule still holds).
+    const pre = [
+      { kind: 'voter_voted' as const, storyId: 'st-x', voterId: 'someone' },
+      { kind: 'vote_value' as const, storyId: 'st-x', points: '13', confidence: 5 },
+    ];
+    expect(projectChangesFor('not-someone', pre).some((c) => c.kind === 'vote_value')).toBe(false);
+  });
+
+  it('REVEAL_VOTES non-host → ERROR NOT_HOST; no broadcast; story still active', () => {
+    const sql = setupActiveWithVotes();
+    const { ws } = fakeWs(VOTER);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, envOf('REVEAL_VOTES', 'rv-nh', { storyId: 'st-1' }), broadcast);
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
+    expect(calls).toEqual([]);
+    expect(getRoomState(sql).stories.find((s) => s.id === 'st-1')?.state).toBe('active');
+  });
+
+  it('REVEAL_VOTES on non-active story → ERROR STORY_NOT_ACTIVE', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 'st-p', text: 'pending', now: NOW + 1 });
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, envOf('REVEAL_VOTES', 'rv-na', { storyId: 'st-p' }), broadcast);
+    expect((out[0].payload as ErrorPayload).code).toBe('STORY_NOT_ACTIVE');
+    expect(calls).toEqual([]);
+  });
+
+  it('REVEAL_VOTES replay → no second broadcast', () => {
+    const sql = setupActiveWithVotes();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const raw = envOf('REVEAL_VOTES', 'rv-dup', { storyId: 'st-1' });
+    handleMessage(sql, ws, raw, broadcast);
+    handleMessage(sql, ws, raw, broadcast);
+    expect(calls).toHaveLength(1);
+  });
+
+  // ---- COMMIT_STORY ----
+
+  function setupRevealed() {
+    const sql = setupActiveWithVotes();
+    revealVotes(sql, { storyId: 'st-1', now: NOW + 10 });
+    return sql;
+  }
+
+  it('host commits a revealed story → story_committed broadcast; final_estimate set', () => {
+    const sql = setupRevealed();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      envOf('COMMIT_STORY', 'cs-1', { storyId: 'st-1', finalEstimate: '5' }),
+      broadcast,
+    );
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].changes[0]).toEqual({
+      kind: 'story_committed', storyId: 'st-1', finalEstimate: '5',
+    });
+    const st = getRoomState(sql).stories.find((s) => s.id === 'st-1');
+    expect(st?.state).toBe('committed');
+    expect(st?.finalEstimate).toBe('5');
+  });
+
+  it('COMMIT_STORY on a non-revealed story → ERROR STORY_NOT_REVEALED', () => {
+    const sql = setupActiveWithVotes(); // still active, not yet revealed
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      envOf('COMMIT_STORY', 'cs-bad', { storyId: 'st-1', finalEstimate: '5' }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('STORY_NOT_REVEALED');
+    expect(calls).toEqual([]);
+  });
+
+  it('COMMIT_STORY non-host → ERROR NOT_HOST', () => {
+    const sql = setupRevealed();
+    const { ws } = fakeWs(VOTER);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      envOf('COMMIT_STORY', 'cs-nh', { storyId: 'st-1', finalEstimate: '5' }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
+    expect(calls).toEqual([]);
   });
 });

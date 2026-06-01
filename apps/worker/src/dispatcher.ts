@@ -1,14 +1,15 @@
 import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
-  AddStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
-  JoinRoomPayload, OpenVotingPayload, RoomSnapshot, ServerMessageType,
+  AddStoryPayload, CommitStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
+  JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot, ServerMessageType,
   SnapshotStory, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import {
-  addStory, castVote, editStory, openVoting, resumeOrAddVoter,
-  getHostVoterId, getRoomState,
+  addStory, castVote, commitStory, editStory, openVoting, revealVotes,
+  resumeOrAddVoter, getHostVoterId, getRoomState,
 } from './operations';
+import { computeRevealStats, resolveDeck } from './stats';
 import { getAttachment } from './broadcast';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
@@ -100,6 +101,10 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleOpenVoting(ctx);
     case 'VOTE_CAST':
       return handleVoteCast(ctx);
+    case 'REVEAL_VOTES':
+      return handleRevealVotes(ctx);
+    case 'COMMIT_STORY':
+      return handleCommitStory(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
@@ -217,6 +222,54 @@ function handleVoteCast(ctx: HandlerCtx): Envelope[] {
       { kind: 'vote_value', storyId: p.storyId, points: p.points, confidence: p.confidence },
       { kind: 'voter_voted', storyId: p.storyId, voterId: ctx.voterId },
     ]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+/** REVEAL_VOTES (host-only) inverts the anti-anchoring filter — values become public. */
+function handleRevealVotes(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isRevealVotesPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'REVEAL_VOTES payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    const { votes } = revealVotes(ctx.sql, { storyId: p.storyId, now: Date.now() });
+    const roomRow = ctx.sql
+      .exec<{ deck: string; custom_deck: string | null }>(
+        'SELECT deck, custom_deck FROM room LIMIT 1',
+      ).toArray()[0];
+    const deck = roomRow
+      ? resolveDeck(roomRow.deck as Parameters<typeof resolveDeck>[0], roomRow.custom_deck ? JSON.parse(roomRow.custom_deck) : null)
+      : [];
+    const stats = computeRevealStats(deck, votes);
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'votes_revealed', storyId: p.storyId, votes, stats }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+/** COMMIT_STORY (host-only) finalises the estimate; closes the loop. */
+function handleCommitStory(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isCommitStoryPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'COMMIT_STORY payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    commitStory(ctx.sql, { storyId: p.storyId, finalEstimate: p.finalEstimate });
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'story_committed', storyId: p.storyId, finalEstimate: p.finalEstimate }]);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';
@@ -368,4 +421,16 @@ function isVoteCastPayload(p: unknown): p is VoteCastPayload {
   if (typeof o.confidence !== 'number' || !Number.isInteger(o.confidence)) return false;
   if (o.confidence < 1 || o.confidence > 5) return false;
   return true;
+}
+
+function isRevealVotesPayload(p: unknown): p is RevealVotesPayload {
+  return !!p && typeof p === 'object' &&
+    typeof (p as Record<string, unknown>).storyId === 'string';
+}
+
+function isCommitStoryPayload(p: unknown): p is CommitStoryPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.storyId === 'string' &&
+    typeof o.finalEstimate === 'string' && o.finalEstimate.length > 0;
 }

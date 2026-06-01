@@ -202,6 +202,20 @@ export type RoomSnapshot = {
 // DELTA broadcast (R2.iv). Per-recipient projection enforces anti-anchoring:
 // `voter_voted` is sent to everyone (presence only); `vote_value` only to the caster.
 
+export type RevealStats = {
+  /** A real deck card, or null if no numeric votes. */
+  median: string | null;
+  /** voterIds strictly more than 1 deck position from the median. */
+  outliers: string[];
+  /** Mean of 1–5 confidence over numeric votes, or null if none. */
+  avgConfidence: number | null;
+  /** True when avgConfidence is below the low-confidence threshold (Pillar 3). */
+  lowConfidence: boolean;
+  /** voterIds who voted a non-deck card (`?`, `∞`, etc.) — "needs discussion" flag. */
+  nonNumeric: string[];
+  numericCount: number;
+};
+
 export type DeltaChange =
   | { kind: 'voter_joined'; voter: Voter }
   | { kind: 'voter_left'; voterId: string }
@@ -210,7 +224,9 @@ export type DeltaChange =
   | { kind: 'vote_value'; storyId: string; points: string; confidence: number }
   | { kind: 'story_added'; story: Story }
   | { kind: 'story_edited'; story: Story }
-  | { kind: 'voting_opened'; storyId: string };
+  | { kind: 'voting_opened'; storyId: string }
+  | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
+  | { kind: 'story_committed'; storyId: string; finalEstimate: string };
 
 export type DeltaPayload = { changes: DeltaChange[] };
 
@@ -238,3 +254,8 @@ export type OpenVotingPayload = { storyId: string };
  * socket binding (SI-01), never from the payload.
  */
 export type VoteCastPayload = { storyId: string; points: string; confidence: number };
+
+// REVEAL_VOTES + COMMIT_STORY payloads (R3.iii).
+
+export type RevealVotesPayload = { storyId: string };
+export type CommitStoryPayload = { storyId: string; finalEstimate: string };

@@ -29,22 +29,45 @@ export function getAttachment(ws: WebSocket): SocketAttachment | null {
 
 /**
  * Pure projection: per-recipient anti-anchoring filter.
- * `voter_voted` is presence — included for everyone.
- * `vote_value` is the casted value — included only when the viewer IS the caster.
- * The caster is identified by the paired `voter_voted` on the same storyId in the same batch.
+ * `vote_value` is the only caster-filtered kind (anti-anchoring on the active story);
+ * all other kinds are explicitly public and pass through unchanged for every viewer.
+ * Pre-reveal active-story values reach the caster only; `votes_revealed` (the controlled
+ * inversion at reveal time) reaches everyone — that's intentional, not a leak.
  */
 export function projectChangesFor(
   viewerVoterId: string | null,
   changes: DeltaChange[],
 ): DeltaChange[] {
-  return changes.filter((change) => {
-    if (change.kind !== 'vote_value') return true;
-    const paired = changes.find(
-      (c): c is Extract<DeltaChange, { kind: 'voter_voted' }> =>
-        c.kind === 'voter_voted' && c.storyId === change.storyId,
-    );
-    if (!paired) return false;
-    return paired.voterId === viewerVoterId;
+  return changes.filter((change): boolean => {
+    switch (change.kind) {
+      // Caster-only — drop for non-casters. The caster is identified by the paired
+      // `voter_voted` on the same storyId in the same batch.
+      case 'vote_value': {
+        const paired = changes.find(
+          (c): c is Extract<DeltaChange, { kind: 'voter_voted' }> =>
+            c.kind === 'voter_voted' && c.storyId === change.storyId,
+        );
+        if (!paired) return false;
+        return paired.voterId === viewerVoterId;
+      }
+      // Public — pass through for every viewer.
+      case 'voter_joined':
+      case 'voter_left':
+      case 'voter_connection':
+      case 'voter_voted':
+      case 'story_added':
+      case 'story_edited':
+      case 'voting_opened':
+      case 'votes_revealed':
+      case 'story_committed':
+        return true;
+      default: {
+        // Unknown future kind — drop defensively so accidental new payloads can't auto-leak.
+        const _exhaustive: never = change;
+        void _exhaustive;
+        return false;
+      }
+    }
   });
 }
 
