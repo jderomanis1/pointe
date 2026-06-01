@@ -40,9 +40,11 @@ function jsonResponse(body: unknown, status: number): Response {
  */
 export class Room {
   private sql: SqlStorage;
+  private ctx: DurableObjectState;
 
   constructor(ctx: DurableObjectState, _env: Env) {
     this.sql = ctx.storage.sql;
+    this.ctx = ctx;
     initSchema(this.sql);
   }
 
@@ -50,6 +52,15 @@ export class Room {
     const { pathname } = new URL(request.url);
     const method = request.method;
     try {
+      if (pathname === '/ws') {
+        if (request.headers.get('Upgrade') !== 'websocket') {
+          return new Response('Expected websocket', { status: 426 });
+        }
+        const pair = new WebSocketPair();
+        const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+        this.ctx.acceptWebSocket(server); // hibernation accept — NOT server.accept()
+        return new Response(null, { status: 101, webSocket: client });
+      }
       if (method === 'POST' && pathname === '/init') {
         const body = (await request.json()) as InitBody;
         const room = createRoom(this.sql, { ...body, now: Date.now() });
@@ -63,5 +74,24 @@ export class Room {
       const code = err instanceof Error ? err.message : 'INTERNAL';
       return jsonResponse({ code, message: code }, mapErrorToStatus(code));
     }
+  }
+
+  // ---- Hibernation handlers (skeleton — R2.ii replaces webSocketMessage) ----
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    // R2.i placeholder — echoes to prove dispatch. R2.ii replaces with the envelope dispatcher.
+    ws.send(typeof message === 'string' ? `echo:${message}` : 'echo:binary');
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean) {
+    try {
+      ws.close(code, 'server ack');
+    } catch {
+      /* already closing */
+    }
+  }
+
+  async webSocketError(_ws: WebSocket, _error: unknown) {
+    // R2.iv handles connection-state on error; placeholder for now.
   }
 }

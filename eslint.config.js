@@ -20,6 +20,8 @@ const workerGlobals = {
   ExecutionContext: 'readonly',
   DurableObjectNamespace: 'readonly',
   DurableObjectState: 'readonly',
+  WebSocket: 'readonly',
+  WebSocketPair: 'readonly',
 };
 
 const browserGlobals = {

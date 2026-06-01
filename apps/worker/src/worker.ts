@@ -101,6 +101,23 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
   return json(responseBody, 201, { 'Set-Cookie': buildSessionCookie(hostVoterId, slug) });
 }
 
+/** GET /api/rooms/:slug/ws → upgrade to WebSocket, forward to DO `/ws`. R2.i (transport entry). */
+async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response | null> {
+  const { pathname } = new URL(request.url);
+  const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)\/ws$/);
+  if (!match) return null;
+  if (request.headers.get('Upgrade') !== 'websocket') {
+    return new Response('Expected websocket', { status: 426 });
+  }
+  const slug = match[1];
+  const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
+  if (roomId === null) {
+    return errorResponse('SLUG_NOT_FOUND', 'Room not found', 404);
+  }
+  const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
+  return stub.fetch(new Request('https://do/ws', request));
+}
+
 /** GET /api/rooms/:slug → minimal `{state, deck}`. Full state comes over WS in R2. */
 async function getRoomEndpoint(request: Request, env: Env): Promise<Response | null> {
   const { pathname } = new URL(request.url);
@@ -141,6 +158,17 @@ export default {
     if (url.pathname === '/api/rooms' && request.method === 'POST') {
       try {
         return await createRoomEndpoint(request, env);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Internal error';
+        return errorResponse(message, message, 500);
+      }
+    }
+
+    // WS upgrade must be matched BEFORE the broader GET /api/rooms/:slug handler.
+    if (url.pathname.startsWith('/api/rooms/') && url.pathname.endsWith('/ws') && request.method === 'GET') {
+      try {
+        const res = await wsUpgradeEndpoint(request, env);
+        if (res) return res;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal error';
         return errorResponse(message, message, 500);
