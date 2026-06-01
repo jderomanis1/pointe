@@ -3,7 +3,7 @@ import { initSchema } from '../src/schema';
 import {
   createRoom, addVoter, addStory, editStory,
   openVoting, castVote, revealVotes, commitStory,
-  resumeOrAddVoter, setVoterConnection, getRoomState,
+  resumeOrAddVoter, setVoterConnection, getHostVoterId, getRoomState,
 } from '../src/operations';
 import { createMockDoState } from './helpers/mockDoState';
 
@@ -298,6 +298,13 @@ describe('operations', () => {
     expect(v.role).toBe('voter');
     expect(v.connectionState).toBe('connected');
     expect(getRoomState(sql).voters.some((x) => x.id === 'v-new')).toBe(true);
+  });
+
+  it('getHostVoterId: returns null before createRoom; returns the host id after', () => {
+    const sql = setup();
+    expect(getHostVoterId(sql)).toBeNull();
+    createRoom(sql, baseParams);
+    expect(getHostVoterId(sql)).toBe('host-1');
   });
 
   it('setVoterConnection: updates connection_state and last_seen_at; visible via getRoomState', () => {

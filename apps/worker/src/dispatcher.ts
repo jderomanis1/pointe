@@ -1,10 +1,14 @@
 import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
-  DeltaChange, Envelope, ErrorPayload, JoinRoomPayload, RoomSnapshot,
-  ServerMessageType, SnapshotStory, VoterRole,
+  AddStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
+  JoinRoomPayload, OpenVotingPayload, RoomSnapshot, ServerMessageType,
+  SnapshotStory, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
-import { resumeOrAddVoter, getRoomState } from './operations';
+import {
+  addStory, editStory, openVoting, resumeOrAddVoter,
+  getHostVoterId, getRoomState,
+} from './operations';
 import { getAttachment } from './broadcast';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
@@ -26,6 +30,8 @@ type HandlerCtx = {
   alreadyProcessed: boolean;
   /** Fan-out to other sockets (R2.iv). No-op by default in tests. */
   broadcast: BroadcastFn;
+  /** R3.i: handlers call this after a successful mutation to dedupe future replays. */
+  markProcessed: () => void;
 };
 
 /**
@@ -58,21 +64,25 @@ export function handleMessage(
     return [makeError('UNSUPPORTED_VERSION', `Unsupported protocol version: ${envelope.v}`, false, envelope.id)];
   }
 
-  // Idempotency: durable 5-min dedupe + opportunistic cleanup.
+  // Idempotency: check only — recording is record-on-success in the handler.
   const now = Date.now();
   sql.exec('DELETE FROM processed_message WHERE at < ?', now - FIVE_MIN_MS);
   const existing = sql
     .exec<{ at: number }>('SELECT at FROM processed_message WHERE id = ?', envelope.id)
     .toArray()[0];
   const alreadyProcessed = existing !== undefined && now - existing.at < FIVE_MIN_MS;
-  if (!alreadyProcessed) {
-    sql.exec('INSERT OR REPLACE INTO processed_message (id, at) VALUES (?, ?)', envelope.id, now);
-  }
 
   return route({
     sql, ws, envelope,
     voterId: getAttachment(ws)?.voterId ?? null,
-    alreadyProcessed, broadcast,
+    alreadyProcessed,
+    broadcast,
+    markProcessed: () => {
+      sql.exec(
+        'INSERT OR REPLACE INTO processed_message (id, at) VALUES (?, ?)',
+        envelope.id, Date.now(),
+      );
+    },
   });
 }
 
@@ -82,8 +92,99 @@ function route(ctx: HandlerCtx): Envelope[] {
       return [makeEnvelope('PONG', {}, ctx.envelope.id)];
     case 'JOIN_ROOM':
       return handleJoinRoom(ctx);
+    case 'ADD_STORY':
+      return handleAddStory(ctx);
+    case 'EDIT_STORY':
+      return handleEditStory(ctx);
+    case 'OPEN_VOTING':
+      return handleOpenVoting(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
+  }
+}
+
+/** SI-02: authority is the socket binding vs Room.hostVoterId. Payload `voterId` is never trusted. */
+function requireHost(ctx: HandlerCtx): { ok: true } | { ok: false; error: Envelope } {
+  if (!ctx.voterId) {
+    return { ok: false, error: makeError('NOT_JOINED', 'JOIN_ROOM first', false, ctx.envelope.id) };
+  }
+  const hostId = getHostVoterId(ctx.sql);
+  if (!hostId) {
+    return { ok: false, error: makeError('ROOM_NOT_FOUND', 'Room not initialized', false, ctx.envelope.id) };
+  }
+  if (ctx.voterId !== hostId) {
+    return { ok: false, error: makeError('NOT_HOST', 'Host only', false, ctx.envelope.id) };
+  }
+  return { ok: true };
+}
+
+function handleAddStory(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isAddStoryPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'ADD_STORY payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    const story = addStory(ctx.sql, {
+      storyId: crypto.randomUUID(),
+      text: p.text,
+      externalId: p.externalId,
+      externalUrl: p.externalUrl,
+      description: p.description,
+      now: Date.now(),
+    });
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'story_added', story }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+function handleEditStory(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isEditStoryPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'EDIT_STORY payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    const story = editStory(ctx.sql, {
+      storyId: p.storyId,
+      text: p.text,
+      externalId: p.externalId,
+      externalUrl: p.externalUrl,
+      description: p.description,
+    });
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'story_edited', story }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+function handleOpenVoting(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isOpenVotingPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'OPEN_VOTING payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    openVoting(ctx.sql, { storyId: p.storyId, now: Date.now() });
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'voting_opened', storyId: p.storyId }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
   }
 }
 
@@ -196,4 +297,29 @@ function isJoinRoomPayload(p: unknown): p is JoinRoomPayload {
   if (o.displayName !== undefined && typeof o.displayName !== 'string') return false;
   if (o.resumeVoterId !== undefined && typeof o.resumeVoterId !== 'string') return false;
   return o.role === 'voter' || o.role === 'spectator';
+}
+
+function isAddStoryPayload(p: unknown): p is AddStoryPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.text !== 'string' || o.text.length === 0) return false;
+  for (const k of ['externalId', 'externalUrl', 'description'] as const) {
+    if (o[k] !== undefined && typeof o[k] !== 'string') return false;
+  }
+  return true;
+}
+
+function isEditStoryPayload(p: unknown): p is EditStoryPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  if (typeof o.storyId !== 'string') return false;
+  for (const k of ['text', 'externalId', 'externalUrl', 'description'] as const) {
+    if (o[k] !== undefined && typeof o[k] !== 'string') return false;
+  }
+  return true;
+}
+
+function isOpenVotingPayload(p: unknown): p is OpenVotingPayload {
+  return !!p && typeof p === 'object' &&
+    typeof (p as Record<string, unknown>).storyId === 'string';
 }

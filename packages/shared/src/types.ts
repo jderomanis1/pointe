@@ -207,6 +207,28 @@ export type DeltaChange =
   | { kind: 'voter_left'; voterId: string }
   | { kind: 'voter_connection'; voterId: string; connectionState: ConnectionState }
   | { kind: 'voter_voted'; storyId: string; voterId: string }
-  | { kind: 'vote_value'; storyId: string; points: string; confidence: number };
+  | { kind: 'vote_value'; storyId: string; points: string; confidence: number }
+  | { kind: 'story_added'; story: Story }
+  | { kind: 'story_edited'; story: Story }
+  | { kind: 'voting_opened'; storyId: string };
 
 export type DeltaPayload = { changes: DeltaChange[] };
+
+// Story-queue message payloads (R3.i).
+
+export type AddStoryPayload = {
+  text: string;
+  externalId?: string;
+  externalUrl?: string;
+  description?: string;
+};
+
+export type EditStoryPayload = {
+  storyId: string;
+  text?: string;
+  externalId?: string;
+  externalUrl?: string;
+  description?: string;
+};
+
+export type OpenVotingPayload = { storyId: string };

@@ -2,17 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { handleMessage } from '../src/dispatcher';
 import { initSchema } from '../src/schema';
 import {
-  createRoom, addStory, openVoting, castVote, revealVotes, addVoter,
+  createRoom, addStory, openVoting, castVote, revealVotes, addVoter, getRoomState,
 } from '../src/operations';
 import { createMockDoState } from './helpers/mockDoState';
-import type { ErrorPayload, RoomSnapshot } from '@pointe/shared';
+import type { DeltaChange, ErrorPayload, RoomSnapshot } from '@pointe/shared';
 
 const NOW = 1_700_000_000_000;
 
 // --- Mock WebSocket ---
 // Records serializeAttachment / send; deserializeAttachment returns the last serialized value.
-function fakeWs() {
-  let attachment: unknown = undefined;
+function fakeWs(initialAttachment: unknown = undefined) {
+  let attachment: unknown = initialAttachment;
   const sent: string[] = [];
   return {
     sent,
@@ -23,6 +23,14 @@ function fakeWs() {
       close: () => {},
     } as unknown as Parameters<typeof handleMessage>[1],
   };
+}
+
+function captureBroadcasts() {
+  const calls: { changes: DeltaChange[]; opts?: { excludeWs?: unknown } }[] = [];
+  const broadcast = (changes: DeltaChange[], opts?: { excludeWs?: unknown }) => {
+    calls.push({ changes, opts });
+  };
+  return { calls, broadcast: broadcast as Parameters<typeof handleMessage>[3] };
 }
 
 function setupRoom() {
@@ -74,13 +82,13 @@ describe('dispatcher.handleMessage — R2.ii pipe (reply id echo correction)', (
     expect(out[0].id).toBe('vc-1');
   });
 
-  it('idempotency: replay records one row in processed_message', () => {
+  it('non-mutating PING does NOT record in processed_message (record-on-success refinement)', () => {
     const sql = setupRoom();
     const { ws } = fakeWs();
     handleMessage(sql, ws, env('RECONNECT_PING', 'dup'));
     handleMessage(sql, ws, env('RECONNECT_PING', 'dup'));
     const rows = sql.exec<{ id: string }>(`SELECT id FROM processed_message WHERE id = 'dup'`).toArray();
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(0);
   });
 
   it('at override: server-stamps reply.at; client at=0 ignored', () => {
@@ -217,5 +225,143 @@ describe('dispatcher.handleMessage — JOIN_ROOM (R2.iii)', () => {
     const revealedIds = snap.stories.filter((s) => s.state === 'revealed').map((s) => s.id).sort();
     expect(revealedIds).toEqual(['s3', 's4', 's5']);
     expect(snap.stories.some((s) => s.id === 's6' && s.state === 'active')).toBe(true);
+  });
+});
+
+describe('dispatcher.handleMessage — story-queue messages (R3.i)', () => {
+  const HOST = { voterId: 'host-1', role: 'host' as const };
+  const VOTER = { voterId: 'v-a', role: 'voter' as const };
+
+  function storyEnv(type: string, id: string, payload: object) {
+    return JSON.stringify({ v: 1, type, id, at: 0, payload });
+  }
+
+  // ---- ADD_STORY ----
+
+  it('ADD_STORY (host): creates a story; broadcasts story_added to all; no direct reply', () => {
+    const sql = setupRoom();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, storyEnv('ADD_STORY', 'a1', { text: 'first' }), broadcast);
+    expect(out).toEqual([]); // actor receives via broadcast, not a direct reply
+    expect(calls).toHaveLength(1);
+    expect(calls[0].changes[0]).toMatchObject({ kind: 'story_added' });
+    expect(calls[0].opts?.excludeWs).toBeUndefined(); // story metadata is public — actor included
+    expect(getRoomState(sql).stories).toHaveLength(1);
+  });
+
+  it('ADD_STORY (non-host): ERROR NOT_HOST (id echoed); no story; no processed_message row', () => {
+    const sql = setupRoom();
+    addVoter(sql, { voterId: 'v-a', displayName: 'A', now: NOW + 1 });
+    const { ws } = fakeWs(VOTER);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, storyEnv('ADD_STORY', 'a-bad', { text: 'nope' }), broadcast);
+    expect(out).toHaveLength(1);
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
+    expect(out[0].id).toBe('a-bad');
+    expect(calls).toEqual([]);
+    expect(getRoomState(sql).stories).toHaveLength(0);
+    const rows = sql.exec(`SELECT id FROM processed_message WHERE id = 'a-bad'`).toArray();
+    expect(rows).toHaveLength(0); // rejected → no dedupe record
+  });
+
+  it('ADD_STORY (not joined): ERROR NOT_JOINED; no story; no row', () => {
+    const sql = setupRoom();
+    const { ws } = fakeWs(); // no attachment
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(sql, ws, storyEnv('ADD_STORY', 'a-nj', { text: 'x' }), broadcast);
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_JOINED');
+    expect(calls).toEqual([]);
+    expect(getRoomState(sql).stories).toHaveLength(0);
+  });
+
+  it('ADD_STORY replay (host): exactly one story, one processed_message row, one broadcast', () => {
+    const sql = setupRoom();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const raw = storyEnv('ADD_STORY', 'a-dup', { text: 'twice' });
+    handleMessage(sql, ws, raw, broadcast);
+    handleMessage(sql, ws, raw, broadcast); // replay
+    expect(getRoomState(sql).stories).toHaveLength(1);
+    const rows = sql.exec(`SELECT id FROM processed_message WHERE id = 'a-dup'`).toArray();
+    expect(rows).toHaveLength(1);
+    expect(calls).toHaveLength(1); // replay does not re-broadcast
+  });
+
+  // ---- EDIT_STORY ----
+
+  it('EDIT_STORY (host): updates and broadcasts story_edited', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 's-1', text: 'old', now: NOW + 1 });
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      storyEnv('EDIT_STORY', 'e1', { storyId: 's-1', text: 'new' }),
+      broadcast,
+    );
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].changes[0]).toMatchObject({ kind: 'story_edited' });
+    expect(getRoomState(sql).stories[0].text).toBe('new');
+  });
+
+  it('EDIT_STORY (host, missing story): ERROR STORY_NOT_FOUND', () => {
+    const sql = setupRoom();
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      storyEnv('EDIT_STORY', 'e-bad', { storyId: 'nope', text: 'x' }),
+      broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('STORY_NOT_FOUND');
+    expect(calls).toEqual([]);
+  });
+
+  // ---- OPEN_VOTING ----
+
+  it('OPEN_VOTING (host, pending): transitions to active; broadcasts voting_opened', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws, storyEnv('OPEN_VOTING', 'o1', { storyId: 's-1' }), broadcast,
+    );
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].changes[0]).toEqual({ kind: 'voting_opened', storyId: 's-1' });
+    const st = getRoomState(sql).stories.find((s) => s.id === 's-1');
+    expect(st?.state).toBe('active');
+  });
+
+  it('OPEN_VOTING (host, another active): ERROR ANOTHER_STORY_ACTIVE; no state change', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    addStory(sql, { storyId: 's-2', text: 'two', now: NOW + 2 });
+    openVoting(sql, { storyId: 's-1', now: NOW + 3 });
+    const { ws } = fakeWs(HOST);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws, storyEnv('OPEN_VOTING', 'o-2', { storyId: 's-2' }), broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('ANOTHER_STORY_ACTIVE');
+    expect(calls).toEqual([]);
+    const s2 = getRoomState(sql).stories.find((s) => s.id === 's-2');
+    expect(s2?.state).toBe('pending');
+  });
+
+  it('OPEN_VOTING (non-host): ERROR NOT_HOST', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
+    addVoter(sql, { voterId: 'v-a', displayName: 'A', now: NOW + 2 });
+    const { ws } = fakeWs(VOTER);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws, storyEnv('OPEN_VOTING', 'o-nh', { storyId: 's-1' }), broadcast,
+    );
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
+    expect(calls).toEqual([]);
   });
 });

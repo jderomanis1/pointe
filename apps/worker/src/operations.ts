@@ -114,6 +114,14 @@ export function resumeOrAddVoter(
   });
 }
 
+/** R3.i: focused read for SI-02 host enforcement (avoids loading full state). */
+export function getHostVoterId(sql: SqlStorage): string | null {
+  const row = sql
+    .exec<{ host_voter_id: string | null }>('SELECT host_voter_id FROM room LIMIT 1')
+    .toArray()[0];
+  return row ? row.host_voter_id : null;
+}
+
 /** R2.iv: set a voter's connection_state (no-op if voter missing). */
 export function setVoterConnection(
   sql: SqlStorage,
