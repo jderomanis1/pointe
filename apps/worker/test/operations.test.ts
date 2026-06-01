@@ -3,7 +3,7 @@ import { initSchema } from '../src/schema';
 import {
   createRoom, addVoter, addStory, editStory,
   openVoting, castVote, revealVotes, commitStory,
-  getRoomState,
+  resumeOrAddVoter, setVoterConnection, getHostVoterId, getRoomState,
 } from '../src/operations';
 import { createMockDoState } from './helpers/mockDoState';
 
@@ -275,5 +275,60 @@ describe('operations', () => {
     expect(() =>
       commitStory(sql, { storyId: 's-1', finalEstimate: '5' }),
     ).toThrow('STORY_NOT_REVEALED');
+  });
+
+  // ---- resumeOrAddVoter ----
+
+  it('resumeOrAddVoter: new voter requires displayName; missing → DISPLAY_NAME_REQUIRED', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    expect(() =>
+      resumeOrAddVoter(sql, { voterId: 'v-new', role: 'voter', now: NOW + 5 }),
+    ).toThrow('DISPLAY_NAME_REQUIRED');
+  });
+
+  it('resumeOrAddVoter: new path inserts a fresh voter with the given role', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    const v = resumeOrAddVoter(sql, {
+      voterId: 'v-new', displayName: 'New', role: 'voter', now: NOW + 5,
+    });
+    expect(v.id).toBe('v-new');
+    expect(v.displayName).toBe('New');
+    expect(v.role).toBe('voter');
+    expect(v.connectionState).toBe('connected');
+    expect(getRoomState(sql).voters.some((x) => x.id === 'v-new')).toBe(true);
+  });
+
+  it('getHostVoterId: returns null before createRoom; returns the host id after', () => {
+    const sql = setup();
+    expect(getHostVoterId(sql)).toBeNull();
+    createRoom(sql, baseParams);
+    expect(getHostVoterId(sql)).toBe('host-1');
+  });
+
+  it('setVoterConnection: updates connection_state and last_seen_at; visible via getRoomState', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    setVoterConnection(sql, { voterId: 'host-1', connectionState: 'left', now: NOW + 100 });
+    const voter = getRoomState(sql).voters.find((v) => v.id === 'host-1');
+    expect(voter?.connectionState).toBe('left');
+    expect(voter?.lastSeenAt).toBe(NOW + 100);
+  });
+
+  it('resumeOrAddVoter: resume reuses the existing voter id; keeps name/role; reactivates connection', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    // host-1 already exists from createRoom; resume them with a different requested role.
+    const v = resumeOrAddVoter(sql, {
+      voterId: 'ignored', resumeVoterId: 'host-1',
+      displayName: 'ignored-too', role: 'spectator', now: NOW + 5,
+    });
+    expect(v.id).toBe('host-1');                 // keeps original id
+    expect(v.role).toBe('host');                 // keeps original role (NOT 'spectator')
+    expect(v.displayName).toBe('Host');          // keeps original displayName
+    expect(v.connectionState).toBe('connected'); // reactivated
+    expect(v.lastSeenAt).toBe(NOW + 5);
+    expect(getRoomState(sql).voters).toHaveLength(1);
   });
 });

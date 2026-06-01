@@ -148,3 +148,114 @@ export type GetRoomResponse = {
 };
 
 export type ApiError = { code: string; message: string };
+
+// WebSocket protocol envelope (Doc 2 §8) — used by R2.ii+.
+
+export const PROTOCOL_VERSION = 1;
+
+export type ClientMessageType =
+  | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
+  | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
+  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM' | 'TRANSFER_HOST';
+
+export type ServerMessageType =
+  | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
+  | 'HOST_VACANT' | 'HOST_RECLAIMED' | 'STORY_AI_READY' | 'STORY_AI_FAILED'
+  | 'PONG';
+
+export type Envelope<T = unknown> = {
+  v: number;
+  type: ClientMessageType | ServerMessageType;
+  /** Client-generated idempotency key. */
+  id: string;
+  /** Server-authoritative; clients send it but the server overrides. */
+  at: number;
+  payload: T;
+};
+
+export type ErrorPayload = { code: string; message: string; retriable: boolean };
+
+// JOIN_ROOM + SNAPSHOT_RESPONSE (R2.iii).
+
+export type JoinRoomPayload = {
+  /** Informational — the DO already is the room. */
+  slug: string;
+  /** Required for a NEW voter; ignored on resume. */
+  displayName?: string;
+  /** From the cookie / prior session. */
+  resumeVoterId?: string;
+  /** Host is assigned by room creation, not claimed here. */
+  role: 'voter' | 'spectator';
+};
+
+/** A Story with votes optionally included (revealed/committed only — active is stripped). */
+export type SnapshotStory = Story & { votes?: Vote[] };
+
+export type RoomSnapshot = {
+  room: Room;
+  voters: Voter[];
+  stories: SnapshotStory[];
+  /** Server-bound identity (SI-01). */
+  you: { voterId: string; role: VoterRole };
+};
+
+// DELTA broadcast (R2.iv). Per-recipient projection enforces anti-anchoring:
+// `voter_voted` is sent to everyone (presence only); `vote_value` only to the caster.
+
+export type RevealStats = {
+  /** A real deck card, or null if no numeric votes. */
+  median: string | null;
+  /** voterIds strictly more than 1 deck position from the median. */
+  outliers: string[];
+  /** Mean of 1–5 confidence over numeric votes, or null if none. */
+  avgConfidence: number | null;
+  /** True when avgConfidence is below the low-confidence threshold (Pillar 3). */
+  lowConfidence: boolean;
+  /** voterIds who voted a non-deck card (`?`, `∞`, etc.) — "needs discussion" flag. */
+  nonNumeric: string[];
+  numericCount: number;
+};
+
+export type DeltaChange =
+  | { kind: 'voter_joined'; voter: Voter }
+  | { kind: 'voter_left'; voterId: string }
+  | { kind: 'voter_connection'; voterId: string; connectionState: ConnectionState }
+  | { kind: 'voter_voted'; storyId: string; voterId: string }
+  | { kind: 'vote_value'; storyId: string; points: string; confidence: number }
+  | { kind: 'story_added'; story: Story }
+  | { kind: 'story_edited'; story: Story }
+  | { kind: 'voting_opened'; storyId: string }
+  | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
+  | { kind: 'story_committed'; storyId: string; finalEstimate: string };
+
+export type DeltaPayload = { changes: DeltaChange[] };
+
+// Story-queue message payloads (R3.i).
+
+export type AddStoryPayload = {
+  text: string;
+  externalId?: string;
+  externalUrl?: string;
+  description?: string;
+};
+
+export type EditStoryPayload = {
+  storyId: string;
+  text?: string;
+  externalId?: string;
+  externalUrl?: string;
+  description?: string;
+};
+
+export type OpenVotingPayload = { storyId: string };
+
+/**
+ * VOTE_CAST payload (R3.ii). Note: NO `voterId` field — attribution comes from the
+ * socket binding (SI-01), never from the payload.
+ */
+export type VoteCastPayload = { storyId: string; points: string; confidence: number };
+
+// REVEAL_VOTES + COMMIT_STORY payloads (R3.iii).
+
+export type RevealVotesPayload = { storyId: string };
+export type CommitStoryPayload = { storyId: string; finalEstimate: string };
