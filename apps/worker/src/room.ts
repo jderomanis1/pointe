@@ -2,8 +2,9 @@ import type { DurableObjectState, SqlStorage } from '@cloudflare/workers-types';
 import type { DeckType, RoomMode } from '@pointe/shared';
 import type { Env } from './worker';
 import { initSchema } from './schema';
-import { createRoom, getRoomState } from './operations';
+import { createRoom, getRoomState, setVoterConnection } from './operations';
 import { handleMessage } from './dispatcher';
+import { broadcast, getAttachment } from './broadcast';
 
 type InitBody = {
   roomId: string;
@@ -80,13 +81,19 @@ export class Room {
   // ---- Hibernation handlers (skeleton — R2.ii replaces webSocketMessage) ----
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const envelopes = handleMessage(this.sql, ws, message);
+    const envelopes = handleMessage(
+      this.sql,
+      ws,
+      message,
+      (changes, opts) => broadcast(this.ctx, changes, opts),
+    );
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
     }
   }
 
   async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean) {
+    this.markGoneAndBroadcast(ws);
     try {
       ws.close(code, 'server ack');
     } catch {
@@ -94,7 +101,23 @@ export class Room {
     }
   }
 
-  async webSocketError(_ws: WebSocket, _error: unknown) {
-    // R2.iv handles connection-state on error; placeholder for now.
+  async webSocketError(ws: WebSocket, _error: unknown) {
+    this.markGoneAndBroadcast(ws);
+  }
+
+  /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */
+  private markGoneAndBroadcast(ws: WebSocket) {
+    try {
+      const att = getAttachment(ws);
+      if (!att) return;
+      setVoterConnection(this.sql, {
+        voterId: att.voterId,
+        connectionState: 'left',
+        now: Date.now(),
+      });
+      broadcast(this.ctx, [{ kind: 'voter_left', voterId: att.voterId }], { excludeWs: ws });
+    } catch {
+      /* don't throw out of the hibernation handler */
+    }
   }
 }

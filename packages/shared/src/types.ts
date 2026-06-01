@@ -198,3 +198,15 @@ export type RoomSnapshot = {
   /** Server-bound identity (SI-01). */
   you: { voterId: string; role: VoterRole };
 };
+
+// DELTA broadcast (R2.iv). Per-recipient projection enforces anti-anchoring:
+// `voter_voted` is sent to everyone (presence only); `vote_value` only to the caster.
+
+export type DeltaChange =
+  | { kind: 'voter_joined'; voter: Voter }
+  | { kind: 'voter_left'; voterId: string }
+  | { kind: 'voter_connection'; voterId: string; connectionState: ConnectionState }
+  | { kind: 'voter_voted'; storyId: string; voterId: string }
+  | { kind: 'vote_value'; storyId: string; points: string; confidence: number };
+
+export type DeltaPayload = { changes: DeltaChange[] };

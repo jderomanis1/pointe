@@ -3,7 +3,7 @@ import { initSchema } from '../src/schema';
 import {
   createRoom, addVoter, addStory, editStory,
   openVoting, castVote, revealVotes, commitStory,
-  resumeOrAddVoter, getRoomState,
+  resumeOrAddVoter, setVoterConnection, getRoomState,
 } from '../src/operations';
 import { createMockDoState } from './helpers/mockDoState';
 
@@ -298,6 +298,15 @@ describe('operations', () => {
     expect(v.role).toBe('voter');
     expect(v.connectionState).toBe('connected');
     expect(getRoomState(sql).voters.some((x) => x.id === 'v-new')).toBe(true);
+  });
+
+  it('setVoterConnection: updates connection_state and last_seen_at; visible via getRoomState', () => {
+    const sql = setup();
+    createRoom(sql, baseParams);
+    setVoterConnection(sql, { voterId: 'host-1', connectionState: 'left', now: NOW + 100 });
+    const voter = getRoomState(sql).voters.find((v) => v.id === 'host-1');
+    expect(voter?.connectionState).toBe('left');
+    expect(voter?.lastSeenAt).toBe(NOW + 100);
   });
 
   it('resumeOrAddVoter: resume reuses the existing voter id; keeps name/role; reactivates connection', () => {

@@ -114,6 +114,17 @@ export function resumeOrAddVoter(
   });
 }
 
+/** R2.iv: set a voter's connection_state (no-op if voter missing). */
+export function setVoterConnection(
+  sql: SqlStorage,
+  params: { voterId: string; connectionState: 'connected' | 'reconnecting' | 'left'; now: number },
+): void {
+  sql.exec(
+    'UPDATE voter SET connection_state = ?, last_seen_at = ? WHERE id = ?',
+    params.connectionState, params.now, params.voterId,
+  );
+}
+
 /** Read the full room state for the worker. roomId is populated at read time per spec §6. */
 export function getRoomState(sql: SqlStorage): RoomReadState {
   const r = sql.exec<RoomRow>('SELECT * FROM room LIMIT 1').toArray()[0];

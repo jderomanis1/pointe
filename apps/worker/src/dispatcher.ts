@@ -1,10 +1,17 @@
 import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
-  Envelope, ErrorPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
-  SnapshotStory, VoterRole,
+  DeltaChange, Envelope, ErrorPayload, JoinRoomPayload, RoomSnapshot,
+  ServerMessageType, SnapshotStory, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import { resumeOrAddVoter, getRoomState } from './operations';
+import { getAttachment } from './broadcast';
+
+/** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
+export type BroadcastFn = (
+  changes: DeltaChange[],
+  opts?: { excludeWs?: WebSocket },
+) => void;
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const REVEALED_HISTORY_LIMIT = 3;
@@ -17,6 +24,8 @@ type HandlerCtx = {
   voterId: string | null;
   /** True if this envelope id was already in `processed_message` within the 5-min window. */
   alreadyProcessed: boolean;
+  /** Fan-out to other sockets (R2.iv). No-op by default in tests. */
+  broadcast: BroadcastFn;
 };
 
 /**
@@ -27,6 +36,7 @@ export function handleMessage(
   sql: SqlStorage,
   ws: WebSocket,
   raw: string | ArrayBuffer,
+  broadcast: BroadcastFn = () => {},
 ): Envelope[] {
   // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
@@ -59,7 +69,11 @@ export function handleMessage(
     sql.exec('INSERT OR REPLACE INTO processed_message (id, at) VALUES (?, ?)', envelope.id, now);
   }
 
-  return route({ sql, ws, envelope, voterId: getVoterIdFromWs(ws), alreadyProcessed });
+  return route({
+    sql, ws, envelope,
+    voterId: getAttachment(ws)?.voterId ?? null,
+    alreadyProcessed, broadcast,
+  });
 }
 
 function route(ctx: HandlerCtx): Envelope[] {
@@ -74,13 +88,14 @@ function route(ctx: HandlerCtx): Envelope[] {
 }
 
 function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
-  const { sql, ws, envelope } = ctx;
+  const { sql, ws, envelope, broadcast } = ctx;
   if (!isJoinRoomPayload(envelope.payload)) {
     return [makeError('BAD_PAYLOAD', 'JOIN_ROOM payload invalid', false, envelope.id)];
   }
   const payload = envelope.payload;
 
   let voterId: string;
+  let didBind = false;
   if (ctx.voterId) {
     // Re-JOIN on a live socket — reuse the existing binding.
     voterId = ctx.voterId;
@@ -96,6 +111,7 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
       voterId = voter.id;
       // SI-01: bind identity on the socket. Survives hibernation.
       ws.serializeAttachment({ voterId: voter.id, role: voter.role });
+      didBind = true;
     } catch (err) {
       const code = err instanceof Error ? err.message : 'INTERNAL';
       return [makeError(code, code, false, envelope.id)];
@@ -103,6 +119,14 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
   }
 
   const snapshot = buildSnapshot(sql, voterId);
+
+  // Broadcast voter_joined to OTHER sockets (skip the joiner — they have the snapshot).
+  // Re-JOIN on an already-bound socket does not re-announce.
+  if (didBind) {
+    const me = snapshot.voters.find((v) => v.id === voterId);
+    if (me) broadcast([{ kind: 'voter_joined', voter: me }], { excludeWs: ws });
+  }
+
   return [makeEnvelope('SNAPSHOT_RESPONSE', snapshot, envelope.id)];
 }
 
@@ -149,19 +173,6 @@ function makeEnvelope<T>(type: ServerMessageType, payload: T, id?: string): Enve
 
 function makeError(code: string, message: string, retriable: boolean, id?: string): Envelope<ErrorPayload> {
   return makeEnvelope('ERROR', { code, message, retriable }, id);
-}
-
-function getVoterIdFromWs(ws: WebSocket): string | null {
-  try {
-    const att = ws.deserializeAttachment();
-    if (att && typeof att === 'object' && 'voterId' in att) {
-      const vid = (att as { voterId?: unknown }).voterId;
-      return typeof vid === 'string' ? vid : null;
-    }
-  } catch {
-    /* not bound */
-  }
-  return null;
 }
 
 function isValidEnvelope(

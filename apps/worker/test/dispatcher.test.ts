@@ -181,6 +181,24 @@ describe('dispatcher.handleMessage — JOIN_ROOM (R2.iii)', () => {
     expect(revealed!.votes).toHaveLength(2); // KEPT
   });
 
+  it('JOIN broadcasts `voter_joined` to peers; joiner gets SNAPSHOT only (no self-delta)', () => {
+    const sql = setupRoom();
+    const { ws: joinerWs } = fakeWs();
+    const broadcasts: { changes: unknown[]; opts?: { excludeWs?: unknown } }[] = [];
+    const out = handleMessage(
+      sql,
+      joinerWs,
+      joinEnv('join-b', { slug: 's', displayName: 'Joiner', role: 'voter' }),
+      (changes, opts) => broadcasts.push({ changes, opts }),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('SNAPSHOT_RESPONSE'); // joiner reply
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0].changes).toHaveLength(1);
+    expect((broadcasts[0].changes[0] as { kind: string }).kind).toBe('voter_joined');
+    expect(broadcasts[0].opts?.excludeWs).toBe(joinerWs); // joiner excluded
+  });
+
   it('scope limit: snapshot includes the active + only the last 3 revealed', () => {
     const sql = setupRoom();
     // Reveal 5 stories chronologically, then open a 6th (active).
