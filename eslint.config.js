@@ -31,6 +31,7 @@ const browserGlobals = {
   navigator: 'readonly',
   localStorage: 'readonly',
   sessionStorage: 'readonly',
+  crypto: 'readonly',
   WebSocket: 'readonly',
   fetch: 'readonly',
   URL: 'readonly',
