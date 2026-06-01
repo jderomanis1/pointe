@@ -3,6 +3,7 @@ import type { DeckType, RoomMode } from '@pointe/shared';
 import type { Env } from './worker';
 import { initSchema } from './schema';
 import { createRoom, getRoomState } from './operations';
+import { handleMessage } from './dispatcher';
 
 type InitBody = {
   roomId: string;
@@ -79,8 +80,10 @@ export class Room {
   // ---- Hibernation handlers (skeleton — R2.ii replaces webSocketMessage) ----
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    // R2.i placeholder — echoes to prove dispatch. R2.ii replaces with the envelope dispatcher.
-    ws.send(typeof message === 'string' ? `echo:${message}` : 'echo:binary');
+    const envelopes = handleMessage(this.sql, message);
+    for (const env of envelopes) {
+      ws.send(JSON.stringify(env));
+    }
   }
 
   async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean) {

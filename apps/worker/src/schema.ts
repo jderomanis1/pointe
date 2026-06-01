@@ -83,4 +83,11 @@ export function initSchema(sql: SqlStorage): void {
     payload    TEXT NOT NULL,
     created_at INTEGER NOT NULL
   )`);
+
+  // WS protocol idempotency dedupe (R2.ii). Durable so it survives hibernation.
+  sql.exec(`CREATE TABLE IF NOT EXISTS processed_message (
+    id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL
+  )`);
+  sql.exec(`CREATE INDEX IF NOT EXISTS idx_processed_at ON processed_message(at)`);
 }

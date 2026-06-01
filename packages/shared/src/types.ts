@@ -148,3 +148,29 @@ export type GetRoomResponse = {
 };
 
 export type ApiError = { code: string; message: string };
+
+// WebSocket protocol envelope (Doc 2 §8) — used by R2.ii+.
+
+export const PROTOCOL_VERSION = 1;
+
+export type ClientMessageType =
+  | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
+  | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
+  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM' | 'TRANSFER_HOST';
+
+export type ServerMessageType =
+  | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
+  | 'HOST_VACANT' | 'HOST_RECLAIMED' | 'STORY_AI_READY' | 'STORY_AI_FAILED'
+  | 'PONG';
+
+export type Envelope<T = unknown> = {
+  v: number;
+  type: ClientMessageType | ServerMessageType;
+  /** Client-generated idempotency key. */
+  id: string;
+  /** Server-authoritative; clients send it but the server overrides. */
+  at: number;
+  payload: T;
+};
+
+export type ErrorPayload = { code: string; message: string; retriable: boolean };

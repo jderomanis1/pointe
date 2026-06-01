@@ -4,8 +4,9 @@ import { createMockDoState } from './helpers/mockDoState';
 
 const EXPECTED_TABLES = [
   'room', 'story', 'voter', 'vote', 'ai_suggestion', 'audit_event', 'ai_cache',
+  'processed_message',
 ];
-const EXPECTED_INDEXES = ['idx_story_order', 'idx_audit_at'];
+const EXPECTED_INDEXES = ['idx_story_order', 'idx_audit_at', 'idx_processed_at'];
 
 function freshSql() {
   return createMockDoState().storage.sql;
@@ -20,7 +21,7 @@ function masterSqlFor(sql: ReturnType<typeof freshSql>, name: string): string {
 }
 
 describe('initSchema', () => {
-  it('creates all 7 tables per spec §6', () => {
+  it('creates all 8 tables (spec §6 + R2.ii dedupe)', () => {
     const sql = freshSql();
     initSchema(sql);
     const names = sql
