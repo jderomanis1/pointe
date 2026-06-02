@@ -152,6 +152,50 @@ export function markRoomHostVacant(
   );
 }
 
+/** S7.iii: read voter role + connection_state. Used to gate claim / transfer targets. */
+export function getVoterById(
+  sql: SqlStorage,
+  voterId: string,
+): { id: string; role: VoterRole; connectionState: Voter['connectionState'] } | null {
+  const row = sql
+    .exec<{ id: string; role: string; connection_state: string }>(
+      `SELECT id, role, connection_state FROM voter WHERE id = ?`,
+      voterId,
+    )
+    .toArray()[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    role: row.role as VoterRole,
+    connectionState: row.connection_state as Voter['connectionState'],
+  };
+}
+
+/**
+ * S7.iii: atomically transition the room to a new host. Enforces the
+ * exactly-one-host invariant — previous host (if any) demotes to 'voter',
+ * new host promotes to 'host'. Clears host_vacant_since and (if vacant)
+ * resets the room to 'active'.
+ *
+ * Caller has already validated preconditions (vacancy for claim, host
+ * authority for transfer, target is a connected participant).
+ */
+export function setRoomHost(
+  sql: SqlStorage,
+  params: { newHostVoterId: string },
+): void {
+  const prev = getHostVoterId(sql);
+  if (prev && prev !== params.newHostVoterId) {
+    sql.exec(`UPDATE voter SET role = 'voter' WHERE id = ?`, prev);
+  }
+  sql.exec(`UPDATE voter SET role = 'host' WHERE id = ?`, params.newHostVoterId);
+  sql.exec(
+    `UPDATE room SET host_voter_id = ?, host_vacant_since = NULL,
+       state = CASE WHEN state = 'host_vacant' THEN 'active' ELSE state END`,
+    params.newHostVoterId,
+  );
+}
+
 /** R2.iv: set a voter's connection_state (no-op if voter missing). */
 export function setVoterConnection(
   sql: SqlStorage,

@@ -1,13 +1,14 @@
 import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
   AddStoryPayload, CommitStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
-  JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot, ServerMessageType,
-  SnapshotStory, VoteCastPayload, VoterRole,
+  HostReclaimedPayload, JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot,
+  ServerMessageType, SnapshotStory, TransferHostPayload, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
   addStory, castVote, commitStory, editStory, openVoting, revealVotes,
-  resumeOrAddVoter, getHostVoterId, getRoomState,
+  resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
+  getVoterById, setRoomHost,
 } from './operations';
 import { getAttachment } from './broadcast';
 
@@ -20,6 +21,10 @@ export type BroadcastFn = (
 /** S7.ii: fire-and-forget host_vacant-task cancellation. Wrapped here so the
  *  dispatcher doesn't need to know about the scheduler module. */
 export type CancelHostVacantFn = () => void;
+
+/** S7.iii: fan out a non-DELTA server envelope (HOST_RECLAIMED, …) to every
+ *  attached socket. Wrapped here so the dispatcher doesn't import broadcast.ts. */
+export type BroadcastEnvelopeFn = <T>(type: ServerMessageType, payload: T) => void;
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const REVEALED_HISTORY_LIMIT = 3;
@@ -38,6 +43,8 @@ type HandlerCtx = {
   markProcessed: () => void;
   /** S7.ii: fire-and-forget cancel of pending host_vacant tasks. No-op in tests by default. */
   cancelHostVacantTask: CancelHostVacantFn;
+  /** S7.iii: fan out a top-level non-DELTA server message. No-op in tests by default. */
+  broadcastEnvelope: BroadcastEnvelopeFn;
 };
 
 /**
@@ -50,6 +57,7 @@ export function handleMessage(
   raw: string | ArrayBuffer,
   broadcast: BroadcastFn = () => {},
   cancelHostVacantTask: CancelHostVacantFn = () => {},
+  broadcastEnvelope: BroadcastEnvelopeFn = () => {},
 ): Envelope[] {
   // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
@@ -91,6 +99,7 @@ export function handleMessage(
       );
     },
     cancelHostVacantTask,
+    broadcastEnvelope,
   });
 }
 
@@ -112,6 +121,10 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleRevealVotes(ctx);
     case 'COMMIT_STORY':
       return handleCommitStory(ctx);
+    case 'CLAIM_HOST':
+      return handleClaimHost(ctx);
+    case 'TRANSFER_HOST':
+      return handleTransferHost(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
@@ -315,14 +328,27 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
     }
   }
 
-  const snapshot = buildSnapshot(sql, voterId);
-
   // S7.ii: host reconnect within the grace cancels the pending host_vacant task.
   // Idempotent: alarm handler re-checks state, so a missed cancel is a no-op too.
-  // Reclaim of an already-vacant room is S7.iii — out of scope here.
-  if (voterId === snapshot.room.hostVoterId && snapshot.room.state === 'active') {
-    ctx.cancelHostVacantTask();
+  // S7.iii: post-vacancy reclaim — original host rejoining while still vacant
+  // (nobody claimed in the grace) auto-restores them (D2). After someone has
+  // claimed (room === 'active' with a different host), they simply rejoin as
+  // their stored role; no backend restore. The S7.iv notice is UI-only.
+  {
+    const lifecycle = getRoomLifecycle(sql);
+    if (lifecycle && voterId === lifecycle.hostVoterId) {
+      if (lifecycle.state === 'active') {
+        ctx.cancelHostVacantTask();
+      } else if (lifecycle.state === 'host_vacant') {
+        setRoomHost(sql, { newHostVoterId: voterId });
+        ctx.cancelHostVacantTask();
+        const reclaimed: HostReclaimedPayload = { newHostVoterId: voterId, via: 'reconnect' };
+        ctx.broadcastEnvelope('HOST_RECLAIMED', reclaimed);
+      }
+    }
   }
+
+  const snapshot = buildSnapshot(sql, voterId);
 
   // Broadcast voter_joined to OTHER sockets (skip the joiner — they have the snapshot).
   // Re-JOIN on an already-bound socket does not re-announce.
@@ -332,6 +358,81 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
   }
 
   return [makeEnvelope('SNAPSHOT_RESPONSE', snapshot, envelope.id)];
+}
+
+/**
+ * S7.iii CLAIM_HOST — any connected voter/spectator (D1) can claim while
+ * `room.state === 'host_vacant'`. First-valid-wins falls out of the DO's
+ * serial processing + the state check: a second claim arriving after the
+ * first sees state !== 'host_vacant' and loses; we then send them a
+ * HOST_RECLAIMED naming the actual host so their UI converges.
+ */
+function handleClaimHost(ctx: HandlerCtx): Envelope[] {
+  const { sql, envelope, voterId } = ctx;
+  if (!voterId) {
+    return [makeError('NOT_JOINED', 'JOIN_ROOM first', false, envelope.id)];
+  }
+  const lifecycle = getRoomLifecycle(sql);
+  if (!lifecycle) {
+    return [makeError('ROOM_NOT_FOUND', 'Room not found', false, envelope.id)];
+  }
+
+  // Lost claim (or never vacant): no transition; tell the claimer who the host
+  // actually is so their UI can converge.
+  if (lifecycle.state !== 'host_vacant') {
+    if (lifecycle.hostVoterId) {
+      const reclaimed: HostReclaimedPayload = {
+        newHostVoterId: lifecycle.hostVoterId, via: 'claim',
+      };
+      // Direct to this socket — first-valid-wins races shouldn't blast peers.
+      return [makeEnvelope('HOST_RECLAIMED', reclaimed, envelope.id)];
+    }
+    return [makeError('NOT_VACANT', 'Room is not vacant', false, envelope.id)];
+  }
+
+  // D1: voter OR spectator may claim. Connected check via the existing voter row.
+  const claimer = getVoterById(sql, voterId);
+  if (!claimer) {
+    return [makeError('VOTER_NOT_FOUND', 'Voter not found', false, envelope.id)];
+  }
+
+  setRoomHost(sql, { newHostVoterId: voterId });
+  ctx.markProcessed();
+  const reclaimed: HostReclaimedPayload = { newHostVoterId: voterId, via: 'claim' };
+  ctx.broadcastEnvelope('HOST_RECLAIMED', reclaimed);
+  return [makeEnvelope('HOST_RECLAIMED', reclaimed, envelope.id)];
+}
+
+/**
+ * S7.iii TRANSFER_HOST — deliberate hand-off from the current host. SI-02:
+ * sender must be the bound host. Target must be a participant currently in
+ * the room (connection_state !== 'left'). Allowed while `active`; doesn't
+ * require vacancy.
+ */
+function handleTransferHost(ctx: HandlerCtx): Envelope[] {
+  const { sql, envelope, voterId } = ctx;
+  if (!voterId) {
+    return [makeError('NOT_JOINED', 'JOIN_ROOM first', false, envelope.id)];
+  }
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+
+  if (!isTransferHostPayload(envelope.payload)) {
+    return [makeError('BAD_PAYLOAD', 'TRANSFER_HOST payload invalid', false, envelope.id)];
+  }
+  const target = getVoterById(sql, envelope.payload.newHostVoterId);
+  if (!target || target.connectionState === 'left') {
+    return [makeError('INVALID_TARGET', 'Target voter is not in the room', false, envelope.id)];
+  }
+  if (target.id === voterId) {
+    return [makeError('INVALID_TARGET', 'You are already the host', false, envelope.id)];
+  }
+
+  setRoomHost(sql, { newHostVoterId: target.id });
+  ctx.markProcessed();
+  const reclaimed: HostReclaimedPayload = { newHostVoterId: target.id, via: 'transfer' };
+  ctx.broadcastEnvelope('HOST_RECLAIMED', reclaimed);
+  return [makeEnvelope('HOST_RECLAIMED', reclaimed, envelope.id)];
 }
 
 /** Build the snapshot with anti-anchoring + scope limit. */
@@ -447,4 +548,10 @@ function isCommitStoryPayload(p: unknown): p is CommitStoryPayload {
   const o = p as Record<string, unknown>;
   return typeof o.storyId === 'string' &&
     typeof o.finalEstimate === 'string' && o.finalEstimate.length > 0;
+}
+
+function isTransferHostPayload(p: unknown): p is TransferHostPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.newHostVoterId === 'string' && o.newHostVoterId.length > 0;
 }

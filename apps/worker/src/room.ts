@@ -101,6 +101,8 @@ export class Room {
       // S7.ii fire-and-forget: deletes the row synchronously; alarm re-schedule
       // is async (acceptable — stale alarm fires into an empty table → no-op).
       () => { void cancelTasksByType(this.ctx.storage, 'host_vacant'); },
+      // S7.iii: HOST_RECLAIMED fan-out for CLAIM_HOST / TRANSFER_HOST / reclaim.
+      (type, payload) => { broadcastEnvelope(this.ctx, type, payload); },
     );
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));

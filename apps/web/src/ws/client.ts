@@ -178,6 +178,10 @@ export class RoomWsClient {
         // no-op keeps the protocol surface visible; the existing `default`
         // would catch it anyway.
         break;
+      case 'HOST_RECLAIMED':
+        // S7.iv: swap the host in the store, clear the banner, surface the
+        // "you were replaced" notice for a returning ex-host. No-op for now.
+        break;
       default:
         // Unknown server message — ignore for forward compat.
         break;

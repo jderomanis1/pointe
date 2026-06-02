@@ -156,7 +156,8 @@ export const PROTOCOL_VERSION = 1;
 export type ClientMessageType =
   | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
   | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
-  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM' | 'TRANSFER_HOST';
+  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
+  | 'CLAIM_HOST' | 'TRANSFER_HOST';
 
 export type ServerMessageType =
   | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
@@ -178,6 +179,18 @@ export type ErrorPayload = { code: string; message: string; retriable: boolean }
 /** S7.ii: host has been absent through the grace window. `vacantSince` is when
  *  they disconnected, confirmed after the 30s grace by the alarm handler. */
 export type HostVacantPayload = { vacantSince: number };
+
+/** S7.iii: claim host (no payload). The claimer is identified by SI-01 socket binding. */
+export type ClaimHostPayload = Record<string, never>;
+
+/** S7.iii: deliberate host transfer. SI-02: sender must be the current host. */
+export type TransferHostPayload = { newHostVoterId: string };
+
+/** S7.iii: a host-change occurred. `via` lets the UI tell the three stories apart. */
+export type HostReclaimedPayload = {
+  newHostVoterId: string;
+  via: 'reconnect' | 'claim' | 'transfer';
+};
 
 // JOIN_ROOM + SNAPSHOT_RESPONSE (R2.iii).
 
