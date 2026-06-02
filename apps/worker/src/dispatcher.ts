@@ -17,6 +17,10 @@ export type BroadcastFn = (
   opts?: { excludeWs?: WebSocket },
 ) => void;
 
+/** S7.ii: fire-and-forget host_vacant-task cancellation. Wrapped here so the
+ *  dispatcher doesn't need to know about the scheduler module. */
+export type CancelHostVacantFn = () => void;
+
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const REVEALED_HISTORY_LIMIT = 3;
 
@@ -32,6 +36,8 @@ type HandlerCtx = {
   broadcast: BroadcastFn;
   /** R3.i: handlers call this after a successful mutation to dedupe future replays. */
   markProcessed: () => void;
+  /** S7.ii: fire-and-forget cancel of pending host_vacant tasks. No-op in tests by default. */
+  cancelHostVacantTask: CancelHostVacantFn;
 };
 
 /**
@@ -43,6 +49,7 @@ export function handleMessage(
   ws: WebSocket,
   raw: string | ArrayBuffer,
   broadcast: BroadcastFn = () => {},
+  cancelHostVacantTask: CancelHostVacantFn = () => {},
 ): Envelope[] {
   // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
@@ -83,6 +90,7 @@ export function handleMessage(
         envelope.id, Date.now(),
       );
     },
+    cancelHostVacantTask,
   });
 }
 
@@ -308,6 +316,13 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
   }
 
   const snapshot = buildSnapshot(sql, voterId);
+
+  // S7.ii: host reconnect within the grace cancels the pending host_vacant task.
+  // Idempotent: alarm handler re-checks state, so a missed cancel is a no-op too.
+  // Reclaim of an already-vacant room is S7.iii — out of scope here.
+  if (voterId === snapshot.room.hostVoterId && snapshot.room.state === 'active') {
+    ctx.cancelHostVacantTask();
+  }
 
   // Broadcast voter_joined to OTHER sockets (skip the joiner — they have the snapshot).
   // Re-JOIN on an already-bound socket does not re-announce.

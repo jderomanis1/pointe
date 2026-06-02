@@ -175,6 +175,10 @@ export type Envelope<T = unknown> = {
 
 export type ErrorPayload = { code: string; message: string; retriable: boolean };
 
+/** S7.ii: host has been absent through the grace window. `vacantSince` is when
+ *  they disconnected, confirmed after the 30s grace by the alarm handler. */
+export type HostVacantPayload = { vacantSince: number };
+
 // JOIN_ROOM + SNAPSHOT_RESPONSE (R2.iii).
 
 export type JoinRoomPayload = {

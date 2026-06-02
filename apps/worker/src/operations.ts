@@ -122,6 +122,36 @@ export function getHostVoterId(sql: SqlStorage): string | null {
   return row ? row.host_voter_id : null;
 }
 
+/** S7.ii: focused read used by the host_vacant alarm handler. */
+export function getRoomLifecycle(sql: SqlStorage): {
+  state: Room['state'];
+  hostVoterId: string | null;
+  hostVacantSince: number | null;
+} | null {
+  const row = sql
+    .exec<{ state: string; host_voter_id: string | null; host_vacant_since: number | null }>(
+      'SELECT state, host_voter_id, host_vacant_since FROM room LIMIT 1',
+    )
+    .toArray()[0];
+  if (!row) return null;
+  return {
+    state: row.state as Room['state'],
+    hostVoterId: row.host_voter_id,
+    hostVacantSince: row.host_vacant_since,
+  };
+}
+
+/** S7.ii: flip the room into host_vacant. Caller must have verified preconditions. */
+export function markRoomHostVacant(
+  sql: SqlStorage,
+  params: { vacantSince: number },
+): void {
+  sql.exec(
+    `UPDATE room SET state = 'host_vacant', host_vacant_since = ?`,
+    params.vacantSince,
+  );
+}
+
 /** R2.iv: set a voter's connection_state (no-op if voter missing). */
 export function setVoterConnection(
   sql: SqlStorage,

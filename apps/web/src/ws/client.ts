@@ -173,6 +173,11 @@ export class RoomWsClient {
         if (this.opts.onError) this.opts.onError(env.payload as ErrorPayload, env);
         // Logical error — socket stays open.
         break;
+      case 'HOST_VACANT':
+        // S7.iv wires this to room.state + the banner. For now an explicit
+        // no-op keeps the protocol surface visible; the existing `default`
+        // would catch it anyway.
+        break;
       default:
         // Unknown server message — ignore for forward compat.
         break;
