@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { ErrorPayload, JoinRoomPayload } from '@pointe/shared';
-
-type JoinRole = 'voter' | 'spectator';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { Badge } from '../components/Badge';
 import { getRoom, buildWsUrl } from '../lib/api';
 import { useRoomClient } from '../hooks/useRoomClient';
 import { useRoomStore } from '../store/roomStore';
+import { RoomShell } from '../components/room/RoomShell';
+import { RoomClientProvider } from '../components/room/RoomClientContext';
 import type { CreateNavState } from './CreatePage';
+
+type JoinRole = 'voter' | 'spectator';
 
 type ProbeState =
   | { kind: 'loading' }
@@ -26,7 +27,6 @@ export function RoomPage({ slug }: { slug: string }) {
   const [probe, setProbe] = useState<ProbeState>({ kind: 'loading' });
   const [joinParams, setJoinParams] = useState<JoinParams | null>(null);
 
-  // 1) Resolve the slug. 404 → RoomNotFound; otherwise proceed.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -39,7 +39,6 @@ export function RoomPage({ slug }: { slug: string }) {
     return () => { alive = false; };
   }, [slug]);
 
-  // 2) Host handoff — if we arrived from CreatePage, connect immediately.
   useEffect(() => {
     if (probe.kind !== 'found' || joinParams || !navState?.asHost) return;
     setJoinParams({
@@ -53,21 +52,18 @@ export function RoomPage({ slug }: { slug: string }) {
     });
   }, [probe.kind, joinParams, navState, slug]);
 
-  if (probe.kind === 'loading') return <RoomShell><p className="text-text-secondary">Looking up <Slug slug={slug} />…</p></RoomShell>;
+  if (probe.kind === 'loading') return <PageShell><p className="text-text-secondary">Looking up <Slug slug={slug} />…</p></PageShell>;
   if (probe.kind === 'not_found') return <RoomNotFound slug={slug} />;
   if (probe.kind === 'probe_error') {
-    return <RoomShell><p className="text-error">Couldn&apos;t reach the server: {probe.message}</p></RoomShell>;
+    return <PageShell><p className="text-error">Couldn&apos;t reach the server: {probe.message}</p></PageShell>;
   }
-
-  if (!joinParams) {
-    return <JoinForm slug={slug} onSubmit={setJoinParams} />;
-  }
+  if (!joinParams) return <JoinForm slug={slug} onSubmit={setJoinParams} />;
   return <RoomConnected wsUrl={joinParams.wsUrl} join={joinParams.join} slug={slug} />;
 }
 
-// ---- subcomponents ----
+// ---- pre-shell page wrapper (only used before the room shell takes over) ----
 
-function RoomShell({ children }: { children: ReactNode }) {
+function PageShell({ children }: { children: ReactNode }) {
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
       <div className="max-w-xl mx-auto px-6 py-24">{children}</div>
@@ -81,7 +77,7 @@ function Slug({ slug }: { slug: string }) {
 
 function RoomNotFound({ slug }: { slug: string }) {
   return (
-    <RoomShell>
+    <PageShell>
       <h1 className="font-serif text-display text-text">No room here</h1>
       <p className="text-text-secondary text-body mt-3">
         <Slug slug={slug} /> doesn&apos;t match any open room.
@@ -89,7 +85,7 @@ function RoomNotFound({ slug }: { slug: string }) {
       <p className="mt-6">
         <Link to="/" className="text-accent font-medium">Create one →</Link>
       </p>
-    </RoomShell>
+    </PageShell>
   );
 }
 
@@ -112,7 +108,7 @@ function JoinForm({ slug, onSubmit }: { slug: string; onSubmit: (p: JoinParams) 
   }
 
   return (
-    <RoomShell>
+    <PageShell>
       <h1 className="font-serif text-display text-text">Join <Slug slug={slug} /></h1>
       <form onSubmit={submit} className="mt-8 bg-surface border border-hairline rounded-md p-6 flex flex-col gap-5">
         <Input
@@ -145,72 +141,32 @@ function JoinForm({ slug, onSubmit }: { slug: string; onSubmit: (p: JoinParams) 
           <Button type="submit" variant="primary">Join</Button>
         </div>
       </form>
-    </RoomShell>
+    </PageShell>
   );
 }
 
 function RoomConnected({ wsUrl, join, slug }: { wsUrl: string; join: JoinRoomPayload; slug: string }) {
   const [serverError, setServerError] = useState<ErrorPayload | null>(null);
-  // Stable args for the mount-only effect.
   const args = useMemo(() => ({
     wsUrl, join, onError: (e: ErrorPayload) => setServerError(e),
   }), [wsUrl, join]);
-  useRoomClient(args);
+  const api = useRoomClient(args);
 
   const connection = useRoomStore((s) => s.connection);
   const room = useRoomStore((s) => s.room);
-  const voters = useRoomStore((s) => s.voters);
-  const me = useRoomStore((s) => s.me);
 
-  const voterCount = Object.values(voters).filter((v) => v.connectionState !== 'left').length;
+  if (connection !== 'connected' || !room) {
+    return <PageShell><p className="text-text-secondary">Joining <Slug slug={slug} />…</p></PageShell>;
+  }
 
   return (
-    <RoomShell>
-      <header className="flex items-center justify-between">
-        <h1 className="font-serif text-heading text-text"><Slug slug={slug} /></h1>
-        <StatusBadge status={connection} />
-      </header>
-
-      {connection === 'reconnecting' ? (
-        <div className="mt-4 bg-warning-surface text-warning-on text-meta rounded-md px-3 py-2">
-          Reconnecting…
-        </div>
-      ) : null}
-
+    <RoomClientProvider send={api.send}>
       {serverError ? (
-        <div className="mt-4 bg-error-surface text-error-on text-meta rounded-md px-3 py-2">
+        <div className="bg-error-surface text-error-on text-meta px-4 py-2 text-center">
           {serverError.code}: {serverError.message}
         </div>
       ) : null}
-
-      {connection === 'connecting' || !room ? (
-        <p className="mt-8 text-text-secondary">Joining…</p>
-      ) : (
-        <section className="mt-8 bg-surface border border-hairline rounded-md p-6">
-          <p className="text-text-secondary text-meta">Room state</p>
-          <p className="text-text text-body mt-1">{room.state}</p>
-
-          <p className="text-text-secondary text-meta mt-4">Voters connected</p>
-          <p className="text-text text-num font-mono mt-1">{voterCount}</p>
-
-          <p className="text-text-secondary text-meta mt-4">You</p>
-          <p className="text-text text-body mt-1">
-            <span className="font-mono">{me?.voterId.slice(0, 8) ?? '—'}</span>
-            {' '}· {me?.role}
-          </p>
-
-          <p className="text-text-muted text-caption mt-6">
-            The room shell (story queue, voting deck, reveal, host controls) arrives in R4.v.
-          </p>
-        </section>
-      )}
-    </RoomShell>
+      <RoomShell slug={slug} />
+    </RoomClientProvider>
   );
-}
-
-function StatusBadge({ status }: { status: ReturnType<typeof useRoomStore.getState>['connection'] }) {
-  if (status === 'connected') return <Badge variant="success">Connected</Badge>;
-  if (status === 'connecting') return <Badge variant="neutral">Connecting</Badge>;
-  if (status === 'reconnecting') return <Badge variant="warning">Reconnecting</Badge>;
-  return <Badge variant="error">Disconnected</Badge>;
 }
