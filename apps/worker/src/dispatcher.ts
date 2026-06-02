@@ -6,8 +6,8 @@ import type {
 } from '@pointe/shared';
 import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
-  addStory, castVote, commitStory, editStory, openVoting, revealVotes,
-  resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
+  addStory, castVote, commitStory, editStory, insertAuditEvent, openVoting,
+  revealVotes, resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
   getVoterById, setRoomHost,
 } from './operations';
 import { getAttachment } from './broadcast';
@@ -205,7 +205,31 @@ function handleOpenVoting(ctx: HandlerCtx): Envelope[] {
   }
   const p = ctx.envelope.payload;
   try {
-    openVoting(ctx.sql, { storyId: p.storyId, now: Date.now() });
+    const result = openVoting(ctx.sql, { storyId: p.storyId, now: Date.now() });
+    // OQ-010: re-open path captured the prior round's votes. Preserve them in
+    // the audit_event log BEFORE broadcasting (preserve-before-destroy). The
+    // operation already deleted the vote rows; we just record what they were.
+    if (result.clearedVotes !== null) {
+      const roomRow = ctx.sql
+        .exec<{ deck: string; custom_deck: string | null }>(
+          'SELECT deck, custom_deck FROM room LIMIT 1',
+        ).toArray()[0];
+      const deck = roomRow
+        ? resolveDeck(roomRow.deck as Parameters<typeof resolveDeck>[0], roomRow.custom_deck ? JSON.parse(roomRow.custom_deck) : null)
+        : [];
+      const stats = computeRevealStats(deck, result.clearedVotes);
+      insertAuditEvent(ctx.sql, {
+        eventType: 'votes_revealed',
+        actorVoterId: ctx.voterId,
+        at: result.prevRevealedAt ?? Date.now(),
+        payload: {
+          storyId: p.storyId,
+          votes: result.clearedVotes,
+          stats,
+          reason: 'reopened',
+        },
+      });
+    }
     ctx.markProcessed();
     ctx.broadcast([{ kind: 'voting_opened', storyId: p.storyId }]);
     return [];

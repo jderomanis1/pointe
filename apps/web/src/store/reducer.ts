@@ -212,16 +212,26 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
         stories: state.stories.map((s) => (s.id === change.story.id ? change.story : s)),
       };
 
-    case 'voting_opened':
-      // Single-active mirror: any other story currently 'active' is flipped out defensively.
+    case 'voting_opened': {
+      // OQ-010: voting_opened can be a re-open of a revealed story; clear the
+      // round-1 view so the re-vote starts clean. Idempotent for first-open —
+      // the targeted slots would already be empty.
+      const { [change.storyId]: _droppedRevealed, ...revealedRest } = state.revealed;
+      const { [change.storyId]: _droppedMyVote, ...myVotesRest } = state.myVotes;
+      const { [change.storyId]: _droppedPresence, ...presenceRest } = state.votedPresence;
       return {
         ...state,
+        // Single-active mirror: any other story currently 'active' is flipped out defensively.
         stories: state.stories.map((s) => {
           if (s.id === change.storyId) return { ...s, state: 'active' };
           if (s.state === 'active') return { ...s, state: 'pending' };
           return s;
         }),
+        revealed: revealedRest,
+        myVotes: myVotesRest,
+        votedPresence: presenceRest,
       };
+    }
 
     case 'votes_revealed':
       return {

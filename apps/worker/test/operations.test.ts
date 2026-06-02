@@ -134,13 +134,15 @@ describe('operations', () => {
 
   // ---- openVoting ----
 
-  it('openVoting: pending → active and sets openedAt', () => {
+  it('openVoting: pending → active and sets openedAt; clearedVotes is null (first-open)', () => {
     const sql = setup();
     createRoom(sql, baseParams);
     addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
-    const updated = openVoting(sql, { storyId: 's-1', now: NOW + 2 });
-    expect(updated.state).toBe('active');
-    expect(updated.openedAt).toBe(NOW + 2);
+    const result = openVoting(sql, { storyId: 's-1', now: NOW + 2 });
+    expect(result.story.state).toBe('active');
+    expect(result.story.openedAt).toBe(NOW + 2);
+    expect(result.clearedVotes).toBeNull();
+    expect(result.prevRevealedAt).toBeNull();
   });
 
   it('openVoting: throws ANOTHER_STORY_ACTIVE when another story is already active', () => {
@@ -152,12 +154,13 @@ describe('operations', () => {
     expect(() => openVoting(sql, { storyId: 's-2', now: NOW + 4 })).toThrow('ANOTHER_STORY_ACTIVE');
   });
 
-  it('openVoting: throws STORY_NOT_PENDING when the story is not pending', () => {
+  it('openVoting: throws STORY_NOT_OPENABLE when the story is in a non-openable state (active, committed)', () => {
     const sql = setup();
     createRoom(sql, baseParams);
     addStory(sql, { storyId: 's-1', text: 'one', now: NOW + 1 });
-    openVoting(sql, { storyId: 's-1', now: NOW + 2 });
-    expect(() => openVoting(sql, { storyId: 's-1', now: NOW + 3 })).toThrow('STORY_NOT_PENDING');
+    openVoting(sql, { storyId: 's-1', now: NOW + 2 }); // active
+    // Active story → STORY_NOT_OPENABLE (revealed would be re-open and is allowed).
+    expect(() => openVoting(sql, { storyId: 's-1', now: NOW + 3 })).toThrow('STORY_NOT_OPENABLE');
   });
 
   it('openVoting: throws STORY_NOT_FOUND for missing storyId', () => {

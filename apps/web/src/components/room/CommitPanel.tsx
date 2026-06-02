@@ -7,14 +7,15 @@ import { useSend } from './RoomClientContext';
 import { VoteCards } from './VoteCards';
 
 /**
- * Host-only commit control on the revealed view.
+ * Host-only commit control on the revealed view. Two exits live here:
+ *   - Commit estimate  (primary accent — the resolving action)
+ *   - Vote again       (secondary — OQ-010, re-open the story for another round)
  *
- * Pre-selects `stats.median` so the common case is one click: "the median
- * matches the discussion → commit." When the team talked through an outlier
- * and landed elsewhere, the host overrides by picking a different card.
- *
- * No numeric median (all-non-numeric reveal) → no pre-selection, commit
- * disabled until the host picks outright.
+ * Commit pre-selects `stats.median` so the common case is one click; the host
+ * overrides by picking a different card when the team landed elsewhere. With
+ * no numeric median (all-non-numeric reveal), nothing pre-selects and commit
+ * is disabled until the host picks. Vote again is always available — re-opening
+ * doesn't depend on a final pick.
  */
 export function CommitPanel({ story }: { story: Story }) {
   const send = useSend();
@@ -33,6 +34,10 @@ export function CommitPanel({ story }: { story: Story }) {
     send('COMMIT_STORY', { storyId: story.id, finalEstimate: picked });
   }
 
+  function reopen() {
+    send('OPEN_VOTING', { storyId: story.id });
+  }
+
   return (
     <section className="flex flex-col gap-4 border-t border-hairline pt-6">
       <div>
@@ -44,9 +49,12 @@ export function CommitPanel({ story }: { story: Story }) {
         </p>
         <VoteCards deck={deck} selected={picked} onSelect={setPicked} />
       </div>
-      <div>
+      <div className="flex items-center gap-3 flex-wrap">
         <Button variant="primary" onClick={commit} disabled={!canCommit}>
           Commit estimate
+        </Button>
+        <Button variant="secondary" onClick={reopen}>
+          Vote again
         </Button>
       </div>
     </section>

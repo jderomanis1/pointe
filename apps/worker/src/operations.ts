@@ -1,5 +1,7 @@
 import type { SqlStorage } from '@cloudflare/workers-types';
-import type { DeckType, Room, RoomMode, Story, Vote, Voter, VoterRole } from '@pointe/shared';
+import type {
+  AuditEventType, DeckType, Room, RoomMode, Story, Vote, Voter, VoterRole,
+} from '@pointe/shared';
 
 /** Worker-internal read result. NOT the protocol snapshot — that's R2. */
 export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; votes: Vote[] };
@@ -334,16 +336,84 @@ function getRoomId(sql: SqlStorage): string {
   return r.id;
 }
 
-/** Transition a pending story to active. Only one story may be active at a time. */
-export function openVoting(sql: SqlStorage, params: { storyId: string; now: number }): Story {
+/**
+ * Transition a story to active. State-aware (OQ-010):
+ *   pending  → active : first open of a story.
+ *   revealed → active : re-open for another round (clears the prior round's
+ *                       votes after capturing them for the audit, resets
+ *                       revealedAt). The caller (dispatcher) writes the
+ *                       audit_event before broadcasting.
+ *
+ * Only one story may be active at a time (single-active invariant; the
+ * "wrong other story is active" rejection covers both paths).
+ *
+ * Return shape:
+ *   - `clearedVotes` is null on a first open; an array (possibly empty for
+ *     a zero-vote reveal) on a re-open.
+ *   - `prevRevealedAt` carries the previous round's reveal timestamp on
+ *     re-open so the audit can record when the round actually closed.
+ */
+export function openVoting(
+  sql: SqlStorage,
+  params: { storyId: string; now: number },
+): { story: Story; clearedVotes: Vote[] | null; prevRevealedAt: number | null } {
   const story = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0];
   if (!story) throw new Error('STORY_NOT_FOUND');
-  if (story.state !== 'pending') throw new Error('STORY_NOT_PENDING');
+  if (story.state !== 'pending' && story.state !== 'revealed') {
+    throw new Error('STORY_NOT_OPENABLE');
+  }
   const active = sql.exec<{ id: string }>(`SELECT id FROM story WHERE state = 'active' LIMIT 1`).toArray()[0];
   if (active) throw new Error('ANOTHER_STORY_ACTIVE');
-  sql.exec(`UPDATE story SET state = 'active', opened_at = ? WHERE id = ?`, params.now, params.storyId);
+
+  let clearedVotes: Vote[] | null = null;
+  let prevRevealedAt: number | null = null;
+  if (story.state === 'revealed') {
+    clearedVotes = sql
+      .exec<VoteRow>('SELECT * FROM vote WHERE story_id = ? ORDER BY submitted_at ASC', params.storyId)
+      .toArray()
+      .map(mapVoteRow);
+    prevRevealedAt = story.revealed_at ?? null;
+    sql.exec('DELETE FROM vote WHERE story_id = ?', params.storyId);
+  }
+
+  sql.exec(
+    `UPDATE story SET state = 'active', opened_at = ?, revealed_at = NULL WHERE id = ?`,
+    params.now, params.storyId,
+  );
   const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
-  return mapStoryRow(updated, getRoomId(sql));
+  return {
+    story: mapStoryRow(updated, getRoomId(sql)),
+    clearedVotes,
+    prevRevealedAt,
+  };
+}
+
+/**
+ * OQ-010 (and a flagged gap beyond it): the audit_event table has been in the
+ * schema since R1 but no handler writes to it today. Re-open is the first
+ * writer of record — it preserves the round that's about to be cleared so the
+ * "audit log preserves history" promise of OQ-010 holds. Comprehensive audit
+ * wiring across all handlers (vote_cast, votes_revealed live, story_committed,
+ * voter_joined/left, host_transferred, …) is a separate task.
+ */
+export function insertAuditEvent(
+  sql: SqlStorage,
+  params: {
+    eventType: AuditEventType;
+    actorVoterId: string | null;
+    at: number;
+    payload: unknown;
+  },
+): void {
+  sql.exec(
+    `INSERT INTO audit_event (id, at, actor_voter_id, event_type, payload)
+     VALUES (?, ?, ?, ?, ?)`,
+    crypto.randomUUID(),
+    params.at,
+    params.actorVoterId,
+    params.eventType,
+    JSON.stringify(params.payload),
+  );
 }
 
 /**
