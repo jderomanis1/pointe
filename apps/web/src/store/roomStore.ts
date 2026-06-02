@@ -1,11 +1,19 @@
 import { create } from 'zustand';
-import type { DeltaPayload, RoomSnapshot } from '@pointe/shared';
-import { applyDelta, applySnapshot, initialState } from './reducer';
+import type {
+  DeltaPayload, HostReclaimedPayload, HostVacantPayload, RoomSnapshot,
+} from '@pointe/shared';
+import {
+  applyDelta, applyHostReclaimed, applyHostVacant, applySnapshot, initialState,
+} from './reducer';
 import type { ConnectionStatus, RoomStore } from './types';
 
 type Actions = {
   hydrate: (snapshot: RoomSnapshot) => void;
   applyServerDelta: (payload: DeltaPayload) => void;
+  applyHostVacant: (payload: HostVacantPayload) => void;
+  applyHostReclaimed: (payload: HostReclaimedPayload) => void;
+  /** S7.iv: clear the "you were replaced" notice once dismissed. */
+  dismissReplacedNotice: () => void;
   setConnection: (status: ConnectionStatus) => void;
   /** Reset to initial state (for leaving a room). */
   reset: () => void;
@@ -20,6 +28,9 @@ export const useRoomStore = create<RoomStore & Actions>()((set, get) => ({
   ...initialState,
   hydrate: (snapshot) => set(applySnapshot(get(), snapshot)),
   applyServerDelta: (payload) => set(applyDelta(get(), payload)),
+  applyHostVacant: (payload) => set(applyHostVacant(get(), payload)),
+  applyHostReclaimed: (payload) => set(applyHostReclaimed(get(), payload)),
+  dismissReplacedNotice: () => set({ replacedByHostName: null }),
   setConnection: (status) => set({ connection: status }),
   reset: () => set(initialState),
 }));

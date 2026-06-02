@@ -32,8 +32,12 @@ function makeStoreSpy() {
     snapshots: [] as RoomSnapshot[],
     deltas: [] as DeltaPayload[],
     statuses: [] as ConnectionStatus[],
+    vacants: [] as { vacantSince: number }[],
+    reclaimeds: [] as { newHostVoterId: string; via: 'reconnect' | 'claim' | 'transfer' }[],
     hydrate(s: RoomSnapshot) { this.snapshots.push(s); },
     applyServerDelta(p: DeltaPayload) { this.deltas.push(p); },
+    applyHostVacant(p: { vacantSince: number }) { this.vacants.push(p); },
+    applyHostReclaimed(p: { newHostVoterId: string; via: 'reconnect' | 'claim' | 'transfer' }) { this.reclaimeds.push(p); },
     setConnection(s: ConnectionStatus) { this.statuses.push(s); },
   };
 }

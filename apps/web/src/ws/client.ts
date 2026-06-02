@@ -1,6 +1,6 @@
 import type {
-  ClientMessageType, DeltaPayload, Envelope, ErrorPayload,
-  JoinRoomPayload, RoomSnapshot, ServerMessageType,
+  ClientMessageType, DeltaPayload, Envelope, ErrorPayload, HostReclaimedPayload,
+  HostVacantPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import type { ConnectionStatus } from '../store/types';
@@ -9,6 +9,8 @@ import type { ConnectionStatus } from '../store/types';
 export type StoreHooks = {
   hydrate: (snapshot: RoomSnapshot) => void;
   applyServerDelta: (payload: DeltaPayload) => void;
+  applyHostVacant: (payload: HostVacantPayload) => void;
+  applyHostReclaimed: (payload: HostReclaimedPayload) => void;
   setConnection: (status: ConnectionStatus) => void;
 };
 
@@ -174,13 +176,10 @@ export class RoomWsClient {
         // Logical error — socket stays open.
         break;
       case 'HOST_VACANT':
-        // S7.iv wires this to room.state + the banner. For now an explicit
-        // no-op keeps the protocol surface visible; the existing `default`
-        // would catch it anyway.
+        this.opts.store.applyHostVacant(env.payload as HostVacantPayload);
         break;
       case 'HOST_RECLAIMED':
-        // S7.iv: swap the host in the store, clear the banner, surface the
-        // "you were replaced" notice for a returning ex-host. No-op for now.
+        this.opts.store.applyHostReclaimed(env.payload as HostReclaimedPayload);
         break;
       default:
         // Unknown server message — ignore for forward compat.
