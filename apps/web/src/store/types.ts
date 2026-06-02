@@ -20,4 +20,12 @@ export type RoomStore = {
   votedPresence: Record<string, Set<string>>;
   /** Stats may be null when seeded from a SNAPSHOT (the snapshot doesn't carry stats — only votes). */
   revealed: Record<string, { votes: Vote[]; stats: RevealStats | null }>;
+  /**
+   * S7.iv: a quiet "you were replaced" notice that fires only when the local
+   * user WAS the host and the host moved away (via a HOST_RECLAIMED with via
+   * 'claim'/'transfer', or a reconnect SNAPSHOT showing a different host).
+   * The string is the new host's display name. Null when nothing to show.
+   * Degrades gracefully on a full page reload (store wiped → no false notice).
+   */
+  replacedByHostName: string | null;
 };

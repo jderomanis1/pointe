@@ -1,6 +1,6 @@
 import type {
-  ClientMessageType, DeltaPayload, Envelope, ErrorPayload,
-  JoinRoomPayload, RoomSnapshot, ServerMessageType,
+  ClientMessageType, DeltaPayload, Envelope, ErrorPayload, HostReclaimedPayload,
+  HostVacantPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import type { ConnectionStatus } from '../store/types';
@@ -9,6 +9,8 @@ import type { ConnectionStatus } from '../store/types';
 export type StoreHooks = {
   hydrate: (snapshot: RoomSnapshot) => void;
   applyServerDelta: (payload: DeltaPayload) => void;
+  applyHostVacant: (payload: HostVacantPayload) => void;
+  applyHostReclaimed: (payload: HostReclaimedPayload) => void;
   setConnection: (status: ConnectionStatus) => void;
 };
 
@@ -172,6 +174,12 @@ export class RoomWsClient {
       case 'ERROR':
         if (this.opts.onError) this.opts.onError(env.payload as ErrorPayload, env);
         // Logical error — socket stays open.
+        break;
+      case 'HOST_VACANT':
+        this.opts.store.applyHostVacant(env.payload as HostVacantPayload);
+        break;
+      case 'HOST_RECLAIMED':
+        this.opts.store.applyHostReclaimed(env.payload as HostReclaimedPayload);
         break;
       default:
         // Unknown server message — ignore for forward compat.

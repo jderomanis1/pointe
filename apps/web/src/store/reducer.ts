@@ -1,5 +1,6 @@
 import type {
-  DeltaChange, DeltaPayload, RoomSnapshot, RevealStats, Story, Vote, Voter,
+  DeltaChange, DeltaPayload, HostReclaimedPayload, HostVacantPayload,
+  RoomSnapshot, RevealStats, Story, Vote, Voter,
 } from '@pointe/shared';
 import { computeRevealStats, resolveDeck } from '@pointe/shared';
 import type { RoomStore } from './types';
@@ -13,7 +14,30 @@ export const initialState: RoomStore = {
   myVotes: {},
   votedPresence: {},
   revealed: {},
+  replacedByHostName: null,
 };
+
+/**
+ * S7.iv replaced-notice detection: did the local user just lose the host role?
+ * Returns the new host's display name when true, else null. Used by applySnapshot
+ * (reconnect SNAPSHOT showing a different host) and applyHostReclaimed.
+ *
+ * Robust case: a live reconnect — the host's tab stayed open, the connection
+ * blipped, the store still remembers `me === room.hostVoterId`. Full page
+ * reloads wipe the store and lose this detection — acceptable graceful
+ * degradation per the spec, not worth server-side tracking for v1.
+ */
+function detectReplacedByHostName(
+  state: RoomStore,
+  newHostVoterId: string | null,
+  newVotersById: Record<string, Voter>,
+): string | null {
+  const myId = state.me?.voterId ?? null;
+  const wasHost = myId !== null && state.room?.hostVoterId === myId;
+  if (!wasHost) return null;
+  if (newHostVoterId === null || newHostVoterId === myId) return null;
+  return newVotersById[newHostVoterId]?.displayName ?? null;
+}
 
 /** Hydrate from a SNAPSHOT_RESPONSE (full state on JOIN / reconnect). */
 export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomStore {
@@ -40,6 +64,13 @@ export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomSto
     }
   }
 
+  // S7.iv: if we were the host and the snapshot moves the host elsewhere,
+  // remember the new host's name so the UI can quietly say "you were replaced."
+  // Carry an existing notice forward if it's still relevant (a second snapshot
+  // shouldn't silently clobber a not-yet-dismissed notice).
+  const detected = detectReplacedByHostName(state, snapshot.room.hostVoterId, voters);
+  const replacedByHostName = detected ?? state.replacedByHostName;
+
   return {
     ...state,
     me: { voterId: snapshot.you.voterId, role: snapshot.you.role },
@@ -51,6 +82,74 @@ export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomSto
     myVotes: {},
     votedPresence: {},
     revealed,
+    replacedByHostName,
+  };
+}
+
+/**
+ * S7.iv HOST_VACANT — the server-confirmed vacant transition (alarm-driven).
+ * Mirrors the worker's markRoomHostVacant: state → 'host_vacant', stamp
+ * hostVacantSince. The roster row of the absent host is unchanged (their
+ * role stays 'host' until someone claims).
+ */
+export function applyHostVacant(state: RoomStore, payload: HostVacantPayload): RoomStore {
+  if (!state.room) return state;
+  return {
+    ...state,
+    room: {
+      ...state.room,
+      state: 'host_vacant',
+      hostVacantSince: payload.vacantSince,
+    },
+  };
+}
+
+/**
+ * S7.iv HOST_RECLAIMED — a host-change occurred (claim / transfer / reconnect).
+ * Mirrors the worker's setRoomHost: swap the room.hostVoterId, demote the
+ * prior host to 'voter' and promote the new host to 'host', clear vacancy,
+ * and (if vacant) return state to 'active'. Idempotent: re-applying after the
+ * swap is a no-op (prior host === new host → no role churn).
+ */
+export function applyHostReclaimed(
+  state: RoomStore, payload: HostReclaimedPayload,
+): RoomStore {
+  if (!state.room) return state;
+  const prevHostId = state.room.hostVoterId;
+  const newHostId = payload.newHostVoterId;
+
+  const voters: Record<string, Voter> = { ...state.voters };
+  if (prevHostId && prevHostId !== newHostId && voters[prevHostId]) {
+    voters[prevHostId] = { ...voters[prevHostId], role: 'voter' };
+  }
+  if (voters[newHostId]) {
+    voters[newHostId] = { ...voters[newHostId], role: 'host' };
+  }
+
+  // Update `me` if the local user gained or lost the host role.
+  let me = state.me;
+  if (me) {
+    if (me.voterId === newHostId && me.role !== 'host') {
+      me = { ...me, role: 'host' };
+    } else if (me.voterId === prevHostId && me.voterId !== newHostId && me.role === 'host') {
+      me = { ...me, role: 'voter' };
+    }
+  }
+
+  const detected = detectReplacedByHostName(state, newHostId, voters);
+  const replacedByHostName = detected ?? state.replacedByHostName;
+
+  return {
+    ...state,
+    me,
+    room: {
+      ...state.room,
+      hostVoterId: newHostId,
+      state: state.room.state === 'host_vacant' ? 'active' : state.room.state,
+      hostVacantSince: undefined,
+    },
+    voters,
+    replacedByHostName,
   };
 }
 

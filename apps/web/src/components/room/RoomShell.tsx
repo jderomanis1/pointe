@@ -7,6 +7,8 @@ import { EmptyState } from './EmptyState';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareLink } from './EmptyState';
 import { VotingStage } from './VotingStage';
+import { HostVacantBanner } from './HostVacantBanner';
+import { ReplacedNotice } from './ReplacedNotice';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -52,6 +54,10 @@ export function RoomShell({
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8 grid gap-6 md:grid-cols-[260px_1fr]">
         <Roster />
         <div className="flex flex-col gap-6">
+          {/* Room-level advisory + transient notice; both can coexist with the
+              per-client connection status badge in the header. */}
+          <HostVacantBanner />
+          <ReplacedNotice />
           {stories.length === 0 ? (
             <EmptyState
               slug={slug}

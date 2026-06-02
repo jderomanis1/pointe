@@ -1,5 +1,7 @@
 import type { DurableObjectState, WebSocket } from '@cloudflare/workers-types';
-import type { DeltaChange, DeltaPayload, Envelope, VoterRole } from '@pointe/shared';
+import type {
+  DeltaChange, DeltaPayload, Envelope, ServerMessageType, VoterRole,
+} from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 
 /** SI-01 binding shape stored via `ws.serializeAttachment`. */
@@ -77,6 +79,39 @@ export function projectChangesFor(
  * `opts.excludeWs` skips the sender (e.g. the joining socket).
  * DELTA ids are minted fresh; this is an unsolicited server message, not a reply.
  */
+/**
+ * Fan out a single non-DELTA server message (HOST_VACANT, HOST_RECLAIMED, …)
+ * to every JOIN-bound socket. Same hibernation discipline as `broadcast`:
+ * fresh `getWebSockets()`, no caching. No per-recipient projection — these
+ * lifecycle messages are public by design.
+ */
+export function broadcastEnvelope<T>(
+  ctx: DurableObjectState,
+  type: ServerMessageType,
+  payload: T,
+  opts?: { excludeWs?: WebSocket },
+): void {
+  const sockets = ctx.getWebSockets();
+  if (sockets.length === 0) return;
+  const env: Envelope<T> = {
+    v: PROTOCOL_VERSION,
+    type,
+    id: crypto.randomUUID(),
+    at: Date.now(),
+    payload,
+  };
+  const raw = JSON.stringify(env);
+  for (const sock of sockets) {
+    if (opts?.excludeWs === sock) continue;
+    if (!getAttachment(sock)) continue;
+    try {
+      sock.send(raw);
+    } catch {
+      /* socket gone; skip */
+    }
+  }
+}
+
 export function broadcast(
   ctx: DurableObjectState,
   changes: DeltaChange[],
