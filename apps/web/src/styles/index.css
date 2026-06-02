@@ -9,16 +9,34 @@
   --color-bg: var(--color-bg);
   --color-surface: var(--color-surface);
   --color-sunken: var(--color-sunken);
+  --color-fill: var(--color-fill);
+
   --color-text: var(--color-text);
+  --color-text-secondary: var(--color-text-secondary);
   --color-text-muted: var(--color-text-muted);
-  --color-text-subtle: var(--color-text-subtle);
+  --color-text-disabled: var(--color-text-disabled);
+
   --color-hairline: var(--color-hairline);
+
   --color-accent: var(--color-accent);
   --color-accent-ink: var(--color-accent-ink);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-active: var(--color-accent-active);
+  --color-accent-tint: var(--color-accent-tint);
+
   --color-gold: var(--color-gold);
-  --color-ok: var(--color-ok);
-  --color-warn: var(--color-warn);
-  --color-err: var(--color-err);
+
+  --color-success: var(--color-success);
+  --color-success-surface: var(--color-success-surface);
+  --color-success-on: var(--color-success-on);
+
+  --color-warning: var(--color-warning);
+  --color-warning-surface: var(--color-warning-surface);
+  --color-warning-on: var(--color-warning-on);
+
+  --color-error: var(--color-error);
+  --color-error-surface: var(--color-error-surface);
+  --color-error-on: var(--color-error-on);
 
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
@@ -26,8 +44,11 @@
 
   --text-display: var(--text-display);
   --text-heading: var(--text-heading);
+  --text-subhead: var(--text-subhead);
   --text-body: var(--text-body);
+  --text-meta: var(--text-meta);
   --text-small: var(--text-small);
+  --text-caption: var(--text-caption);
   --text-micro: var(--text-micro);
   --text-num: var(--text-num);
 
@@ -38,6 +59,9 @@
 
   --shadow-card: var(--shadow-card);
   --shadow-pop: var(--shadow-pop);
+
+  --duration-fast: var(--duration-fast);
+  --duration-base: var(--duration-base);
 }
 
 html, body {
