@@ -51,26 +51,50 @@ describe('applySnapshot', () => {
     expect(state.stories.map((s) => s.id)).toEqual(['s-1', 's-2']);
   });
 
-  it('seeds `revealed` from revealed/committed stories carrying votes; stats null (snapshot has no stats)', () => {
-    const oldVote: Vote = {
-      storyId: 's-1', voterId: 'v-a', points: '5', confidence: 4,
-      submittedAt: 0, updatedAt: 0,
-    };
+  it('seeds `revealed` from revealed/committed stories carrying votes; stats computed client-side via the shared pure function', () => {
+    // Three votes around median 5 on the Fibonacci deck — a recognisable result.
+    const votes: Vote[] = [
+      { storyId: 's-1', voterId: 'v-a', points: '5', confidence: 4, submittedAt: 0, updatedAt: 0 },
+      { storyId: 's-1', voterId: 'v-b', points: '5', confidence: 3, submittedAt: 0, updatedAt: 0 },
+      { storyId: 's-1', voterId: 'v-c', points: '8', confidence: 5, submittedAt: 0, updatedAt: 0 },
+    ];
     const snapshot: RoomSnapshot = {
       room: ROOM,
       voters: [makeVoter('v-a')],
       stories: [
-        { ...makeStory('s-1', 100, 'revealed'), votes: [oldVote] },
+        { ...makeStory('s-1', 100, 'revealed'), votes },
         makeStory('s-2', 200, 'pending'),
       ],
       you: { voterId: 'v-a', role: 'voter' },
     };
     const state = applySnapshot(initialState, snapshot);
-    expect(state.revealed['s-1']).toEqual({ votes: [oldVote], stats: null });
+    expect(state.revealed['s-1'].votes).toEqual(votes);
+    // The bug-fix: stats is NOT null — it's the computed result of the shared function.
+    expect(state.revealed['s-1'].stats).not.toBeNull();
+    expect(state.revealed['s-1'].stats?.median).toBe('5');
+    expect(state.revealed['s-1'].stats?.numericCount).toBe(3);
+    expect(state.revealed['s-1'].stats?.outliers).toEqual([]);
+    expect(state.revealed['s-1'].stats?.avgConfidence).toBeCloseTo(4);
+    expect(state.revealed['s-1'].stats?.lowConfidence).toBe(false);
     expect(state.revealed['s-2']).toBeUndefined();
     // myVotes / votedPresence start clean — snapshot strips active-story votes.
     expect(state.myVotes).toEqual({});
     expect(state.votedPresence).toEqual({});
+  });
+
+  it('revealed story with zero votes hydrates safely (stats with null median, no throw)', () => {
+    const snapshot: RoomSnapshot = {
+      room: ROOM,
+      voters: [makeVoter('v-a')],
+      stories: [{ ...makeStory('s-1', 100, 'revealed'), votes: [] }],
+      you: { voterId: 'v-a', role: 'voter' },
+    };
+    const state = applySnapshot(initialState, snapshot);
+    expect(state.revealed['s-1'].votes).toEqual([]);
+    expect(state.revealed['s-1'].stats).not.toBeNull();
+    expect(state.revealed['s-1'].stats?.median).toBeNull();
+    expect(state.revealed['s-1'].stats?.numericCount).toBe(0);
+    expect(state.revealed['s-1'].stats?.outliers).toEqual([]);
   });
 });
 

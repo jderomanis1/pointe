@@ -4,12 +4,11 @@ import type {
   JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot, ServerMessageType,
   SnapshotStory, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
-import { PROTOCOL_VERSION } from '@pointe/shared';
+import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
   addStory, castVote, commitStory, editStory, openVoting, revealVotes,
   resumeOrAddVoter, getHostVoterId, getRoomState,
 } from './operations';
-import { computeRevealStats, resolveDeck } from './stats';
 import { getAttachment } from './broadcast';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */

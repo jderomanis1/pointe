@@ -1,6 +1,7 @@
 import type {
   DeltaChange, DeltaPayload, RoomSnapshot, RevealStats, Story, Vote, Voter,
 } from '@pointe/shared';
+import { computeRevealStats, resolveDeck } from '@pointe/shared';
 import type { RoomStore } from './types';
 
 export const initialState: RoomStore = {
@@ -24,12 +25,18 @@ export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomSto
     .map(({ votes: _votes, ...story }) => story)
     .sort((a, b) => a.orderIndex - b.orderIndex);
 
-  // Seed `revealed` from revealed/committed stories in the snapshot. The snapshot doesn't
-  // carry stats — only votes — so stats is null until a REVEAL delta refreshes it.
+  // Seed `revealed` from revealed/committed stories in the snapshot. The snapshot carries
+  // votes but not stats (stats are computed at reveal-time on the server, sent in the
+  // votes_revealed DELTA, and never persisted). We recompute client-side from the same
+  // pure function the worker uses — identical inputs, identical output, no null hole.
+  const deck = resolveDeck(snapshot.room.deck, snapshot.room.customDeck);
   const revealed: Record<string, { votes: Vote[]; stats: RevealStats | null }> = {};
   for (const s of snapshot.stories) {
     if ((s.state === 'revealed' || s.state === 'committed') && s.votes) {
-      revealed[s.id] = { votes: s.votes, stats: null };
+      revealed[s.id] = {
+        votes: s.votes,
+        stats: computeRevealStats(deck, s.votes),
+      };
     }
   }
 
