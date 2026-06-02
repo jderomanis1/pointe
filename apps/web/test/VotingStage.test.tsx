@@ -77,7 +77,7 @@ describe('Open voting — host control', () => {
 });
 
 describe('VotingStage — active story focus', () => {
-  it('renders the story text as a serif heading + voting-open status + an empty casting slot', () => {
+  it('renders the story text as a serif heading + voting-open status; cast slot present', () => {
     seed({
       room: room(),
       voters: [voter(HOST_ID, 'Alice', 'host'), voter(VOTER_ID, 'Bob')],
@@ -96,10 +96,10 @@ describe('VotingStage — active story focus', () => {
     // PROJ-1 appears in both the stage and the queue row — both legitimate.
     expect(screen.getAllByText('PROJ-1').length).toBeGreaterThanOrEqual(1);
 
-    // The casting slot exists as a reserved-empty region — no placeholder text in it.
+    // The cast slot exists. R5.iii fills it with the CastPanel for voters/host;
+    // the spectator-gating + cast behavior are covered in CastPanel.test.tsx.
     const slot = document.querySelector('[data-slot="cast"]') as HTMLElement | null;
     expect(slot).not.toBeNull();
-    expect(slot!.textContent ?? '').toBe('');
   });
 });
 

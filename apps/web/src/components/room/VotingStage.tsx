@@ -1,15 +1,18 @@
 import type { Story } from '@pointe/shared';
+import { useRoomStore } from '../../store/roomStore';
 import { Badge } from '../Badge';
 import { VoterSeats } from './VoterSeats';
+import { CastPanel } from './CastPanel';
 
 /**
  * The active-story focus. R5.iii fills the reserved `data-slot="cast"` region
- * with vote cards + the confidence picker. Until then the slot stays empty —
- * no placeholder text, no "coming soon": a coherent view missing one element
- * reads as in-progress; a captioned placeholder reads as broken-on-purpose.
- * R5 merges as a unit, so this half-state only exists on the branch.
+ * with the CastPanel (deck + confidence + submit). Spectators see the stage
+ * + seats but no cast UI — the slot stays empty for them.
  */
 export function VotingStage({ story }: { story: Story }) {
+  const me = useRoomStore((s) => s.me);
+  const canVote = me !== null && me.role !== 'spectator';
+
   return (
     <section className="bg-surface border border-hairline rounded-md p-6 md:p-8 flex flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -28,8 +31,9 @@ export function VotingStage({ story }: { story: Story }) {
 
       <VoterSeats activeStoryId={story.id} />
 
-      {/* Reserved-empty casting slot — R5.iii's vote cards + confidence picker drop here. */}
-      <div data-slot="cast" />
+      <div data-slot="cast">
+        {canVote ? <CastPanel story={story} /> : null}
+      </div>
     </section>
   );
 }
