@@ -1,0 +1,49 @@
+@import './tokens.css';
+@import 'tailwindcss';
+
+/* Bridge: expose our semantic tokens as Tailwind utilities.
+ * `@theme inline` references the CSS vars at use-site, so dark-theme overrides
+ * on [data-theme="dark"] flow through utilities like bg-bg, text-text, etc.
+ */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-sunken: var(--color-sunken);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-subtle: var(--color-text-subtle);
+  --color-hairline: var(--color-hairline);
+  --color-accent: var(--color-accent);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-gold: var(--color-gold);
+  --color-ok: var(--color-ok);
+  --color-warn: var(--color-warn);
+  --color-err: var(--color-err);
+
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+
+  --text-display: var(--text-display);
+  --text-heading: var(--text-heading);
+  --text-body: var(--text-body);
+  --text-small: var(--text-small);
+  --text-micro: var(--text-micro);
+  --text-num: var(--text-num);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+}
+
+html, body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+}

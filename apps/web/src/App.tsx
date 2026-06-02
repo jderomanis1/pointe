@@ -1,23 +1,24 @@
+import { getTheme, setTheme, type ThemeChoice } from './theme';
+
 export function App() {
+  const current = getTheme();
+  const next: ThemeChoice = current === 'dark' ? 'light' : 'dark';
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        padding: '4rem 2rem',
-        maxWidth: '600px',
-        margin: '0 auto',
-        textAlign: 'center',
-      }}
-    >
-      <h1 style={{ fontSize: '3rem', fontWeight: 400, letterSpacing: '-0.02em' }}>
-        Pointe
-      </h1>
-      <p style={{ fontStyle: 'italic', color: '#666', marginTop: '1rem' }}>
-        Planning poker that respects your team&apos;s time and judgment.
-      </p>
-      <p style={{ marginTop: '2rem', color: '#999', fontSize: '0.875rem' }}>
-        Phase 2 — under active development.
-      </p>
+    <main className="bg-bg min-h-screen p-12">
+      <div className="bg-surface border-hairline border rounded-lg shadow-card max-w-xl mx-auto p-8">
+        <h1 className="font-serif text-heading text-text">Pointe</h1>
+        <p className="font-sans text-body text-text-muted mt-2">
+          Planning poker that respects your team&apos;s time and judgment.
+        </p>
+        <p className="font-mono text-num text-accent mt-4">13</p>
+        <button
+          type="button"
+          onClick={() => { setTheme(next); window.location.reload(); }}
+          className="bg-accent text-accent-ink rounded-md px-4 py-2 mt-6 font-sans text-small"
+        >
+          Switch to {next}
+        </button>
+      </div>
     </main>
   );
 }
