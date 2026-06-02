@@ -58,7 +58,14 @@ export function VotingStage({ story }: { story: Story }) {
           ) : null}
           {story.edited ? <Badge variant="neutral">edited</Badge> : null}
           {isHost && story.state === 'active' ? (
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => send('SKIP_STORY', { storyId: story.id })}
+              >
+                Skip story
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"

@@ -2,13 +2,14 @@ import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
   AddStoryPayload, CommitStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
   HostReclaimedPayload, JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot,
-  ServerMessageType, SnapshotStory, TransferHostPayload, VoteCastPayload, VoterRole,
+  ServerMessageType, SkipStoryPayload, SnapshotStory, TransferHostPayload, VoteCastPayload,
+  VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
   addStory, castVote, commitStory, editStory, insertAuditEvent, openVoting,
   revealVotes, resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
-  getVoterById, setRoomHost,
+  getVoterById, setRoomHost, skipStory,
 } from './operations';
 import { getAttachment } from './broadcast';
 
@@ -121,6 +122,8 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleRevealVotes(ctx);
     case 'COMMIT_STORY':
       return handleCommitStory(ctx);
+    case 'SKIP_STORY':
+      return handleSkipStory(ctx);
     case 'CLAIM_HOST':
       return handleClaimHost(ctx);
     case 'TRANSFER_HOST':
@@ -314,6 +317,25 @@ function handleCommitStory(ctx: HandlerCtx): Envelope[] {
     commitStory(ctx.sql, { storyId: p.storyId, finalEstimate: p.finalEstimate });
     ctx.markProcessed();
     ctx.broadcast([{ kind: 'story_committed', storyId: p.storyId, finalEstimate: p.finalEstimate }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+function handleSkipStory(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isSkipStoryPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'SKIP_STORY payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  try {
+    skipStory(ctx.sql, { storyId: p.storyId });
+    ctx.markProcessed();
+    ctx.broadcast([{ kind: 'story_skipped', storyId: p.storyId }]);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';
@@ -572,6 +594,12 @@ function isCommitStoryPayload(p: unknown): p is CommitStoryPayload {
   const o = p as Record<string, unknown>;
   return typeof o.storyId === 'string' &&
     typeof o.finalEstimate === 'string' && o.finalEstimate.length > 0;
+}
+
+function isSkipStoryPayload(p: unknown): p is SkipStoryPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.storyId === 'string' && o.storyId.length > 0;
 }
 
 function isTransferHostPayload(p: unknown): p is TransferHostPayload {

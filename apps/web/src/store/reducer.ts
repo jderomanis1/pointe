@@ -255,6 +255,18 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
         ),
       };
 
+    case 'story_skipped':
+      // Terminal transition. If the skipped story was active, the stage
+      // clears automatically (RoomShell focusStory drops it). Votes (if any
+      // from an active/revealed skip) stay in `revealed` / `myVotes` —
+      // inert, harmless, and a future history view could surface them.
+      return {
+        ...state,
+        stories: state.stories.map((s) =>
+          s.id === change.storyId ? { ...s, state: 'skipped' } : s,
+        ),
+      };
+
     default: {
       // Compile-time check: adding a new DeltaChange kind without handling it fails typecheck.
       const _exhaustive: never = change;

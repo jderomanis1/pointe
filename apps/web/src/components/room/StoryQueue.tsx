@@ -18,18 +18,25 @@ function stateBadge(state: StoryState) {
 }
 
 function StoryRow({
-  s, isHost, anyActive, onOpenVoting,
+  s, isHost, anyActive, onOpenVoting, onSkip,
 }: {
   s: Story;
   isHost: boolean;
   anyActive: boolean;
   onOpenVoting: (storyId: string) => void;
+  onSkip: (storyId: string) => void;
 }) {
   const showOpen = isHost && s.state === 'pending' && !anyActive;
+  // Skipping pending stories is allowed any time — the active-story skip lives
+  // on the stage. Skipped/committed/split rows show no host actions (terminal).
+  const showSkip = isHost && s.state === 'pending';
+  const isMuted = s.state === 'skipped';
   return (
     <li className="flex items-start gap-3 py-3 px-4 border-b border-hairline last:border-b-0">
       <div className="min-w-0 flex-1">
-        <p className="text-body text-text break-words">{s.text}</p>
+        <p className={`text-body break-words ${isMuted ? 'text-text-muted' : 'text-text'}`}>
+          {s.text}
+        </p>
         {s.externalId ? (
           <p className="text-meta font-mono text-text-muted mt-1">{s.externalId}</p>
         ) : null}
@@ -38,6 +45,11 @@ function StoryRow({
         {showOpen ? (
           <Button variant="secondary" size="sm" onClick={() => onOpenVoting(s.id)}>
             Open voting
+          </Button>
+        ) : null}
+        {showSkip ? (
+          <Button variant="ghost" size="sm" onClick={() => onSkip(s.id)}>
+            Skip
           </Button>
         ) : null}
         {s.state === 'committed' && s.finalEstimate ? (
@@ -78,6 +90,7 @@ export function StoryQueue() {
             isHost={isHost}
             anyActive={anyActive}
             onOpenVoting={(storyId) => send('OPEN_VOTING', { storyId })}
+            onSkip={(storyId) => send('SKIP_STORY', { storyId })}
           />
         ))}
       </ul>

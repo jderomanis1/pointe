@@ -466,6 +466,24 @@ export function revealVotes(
   return { story: mapStoryRow(updated, getRoomId(sql)), votes };
 }
 
+/**
+ * S7 SKIP_STORY: terminal transition. Accepts pending / active / revealed;
+ * rejects committed / skipped / split (already terminal).
+ *
+ * Cheap by design: no vote clear, no audit. Skipping the active story leaves
+ * the room with no active story (correct — the host opens the next one).
+ */
+export function skipStory(sql: SqlStorage, params: { storyId: string }): Story {
+  const story = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0];
+  if (!story) throw new Error('STORY_NOT_FOUND');
+  if (story.state !== 'pending' && story.state !== 'active' && story.state !== 'revealed') {
+    throw new Error('STORY_NOT_SKIPPABLE');
+  }
+  sql.exec(`UPDATE story SET state = 'skipped' WHERE id = ?`, params.storyId);
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  return mapStoryRow(updated, getRoomId(sql));
+}
+
 /** Commit a revealed story with the agreed final estimate. */
 export function commitStory(
   sql: SqlStorage,

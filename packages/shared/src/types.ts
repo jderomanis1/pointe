@@ -243,7 +243,8 @@ export type DeltaChange =
   | { kind: 'story_edited'; story: Story }
   | { kind: 'voting_opened'; storyId: string }
   | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
-  | { kind: 'story_committed'; storyId: string; finalEstimate: string };
+  | { kind: 'story_committed'; storyId: string; finalEstimate: string }
+  | { kind: 'story_skipped'; storyId: string };
 
 export type DeltaPayload = { changes: DeltaChange[] };
 
@@ -276,3 +277,5 @@ export type VoteCastPayload = { storyId: string; points: string; confidence: num
 
 export type RevealVotesPayload = { storyId: string };
 export type CommitStoryPayload = { storyId: string; finalEstimate: string };
+/** S7 SKIP_STORY — host skips a story (terminal). pending/active/revealed only. */
+export type SkipStoryPayload = { storyId: string };
