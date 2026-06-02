@@ -1,4 +1,4 @@
-import type { DeckType, RevealStats, Vote } from '@pointe/shared';
+import type { DeckType, RevealStats, Vote } from './types.js';
 
 /**
  * Reveal-time stats per OQ-008 (resolved 2026-05-29):
@@ -11,12 +11,15 @@ import type { DeckType, RevealStats, Vote } from '@pointe/shared';
  *    "may need more refinement" flag (Pillar 3).
  *
  * Pure: no SQL, no IO, no clock. Deterministic.
+ *
+ * Lives in `shared` so both the worker (at reveal) and the client (when hydrating a
+ * snapshot of an already-revealed story) compute identical results.
  */
 
 export const LOW_CONFIDENCE_THRESHOLD = 2.5;
 
 // Canonical deck card sets. Order = deck-position order.
-const DECKS = {
+export const DECKS = {
   fibonacci: ['1', '2', '3', '5', '8', '13', '21'],
   modFibonacci: ['0.5', '1', '2', '3', '5', '8', '13', '20', '40', '100'],
   tshirt: ['XS', 'S', 'M', 'L', 'XL'],

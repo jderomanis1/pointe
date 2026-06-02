@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeRevealStats, resolveDeck, LOW_CONFIDENCE_THRESHOLD } from '../src/stats';
+import { computeRevealStats, resolveDeck, LOW_CONFIDENCE_THRESHOLD } from '@pointe/shared';
 import type { Vote } from '@pointe/shared';
 
 const FIB = ['1', '2', '3', '5', '8', '13', '21'];
