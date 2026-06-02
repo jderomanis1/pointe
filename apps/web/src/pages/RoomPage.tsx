@@ -8,6 +8,7 @@ import { useRoomClient } from '../hooks/useRoomClient';
 import { useRoomStore } from '../store/roomStore';
 import { RoomShell } from '../components/room/RoomShell';
 import { RoomClientProvider } from '../components/room/RoomClientContext';
+import { AddStory } from '../components/room/AddStory';
 import type { CreateNavState } from './CreatePage';
 
 type JoinRole = 'voter' | 'spectator';
@@ -166,7 +167,11 @@ function RoomConnected({ wsUrl, join, slug }: { wsUrl: string; join: JoinRoomPay
           {serverError.code}: {serverError.message}
         </div>
       ) : null}
-      <RoomShell slug={slug} />
+      <RoomShell
+        slug={slug}
+        addStorySlot={<AddStory />}
+        persistentAddStorySlot={<AddStory />}
+      />
     </RoomClientProvider>
   );
 }
