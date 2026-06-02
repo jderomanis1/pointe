@@ -5,6 +5,7 @@ import { initSchema } from './schema';
 import { createRoom, getRoomState, setVoterConnection } from './operations';
 import { handleMessage } from './dispatcher';
 import { broadcast, getAttachment } from './broadcast';
+import { runDueTasks, type ScheduledTask } from './scheduler';
 
 type InitBody = {
   roomId: string;
@@ -103,6 +104,35 @@ export class Room {
 
   async webSocketError(ws: WebSocket, _error: unknown) {
     this.markGoneAndBroadcast(ws);
+  }
+
+  /**
+   * Single alarm entry-point. The scheduler module pulls every task with
+   * at <= now and routes it through `dispatchScheduledTask`. S7.ii (host
+   * vacancy), S9 (async windows) and archival all extend the switch — the
+   * scheduler stays domain-agnostic.
+   */
+  async alarm() {
+    await runDueTasks(this.ctx.storage, Date.now(), (task) => this.dispatchScheduledTask(task));
+  }
+
+  private dispatchScheduledTask(task: ScheduledTask): void {
+    switch (task.type) {
+      case '__test_marker': {
+        // Synthetic — exists so S7.i tests can observe dispatch end-to-end.
+        // Consumers (host_vacant in S7.ii, etc.) replace this with the real
+        // case statements; the default keeps unknown types from throwing.
+        this.sql.exec(
+          `INSERT INTO processed_message (id, at) VALUES (?, ?)`,
+          `__test_marker:${task.id}`,
+          Date.now(),
+        );
+        break;
+      }
+      default:
+        console.warn(`scheduler: unknown task type "${task.type}" (id=${task.id})`);
+        break;
+    }
   }
 
   /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */

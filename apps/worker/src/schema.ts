@@ -90,4 +90,15 @@ export function initSchema(sql: SqlStorage): void {
     at INTEGER NOT NULL
   )`);
   sql.exec(`CREATE INDEX IF NOT EXISTS idx_processed_at ON processed_message(at)`);
+
+  // Scheduler infra (S7.i). Multiplexes the DO's single alarm across an
+  // arbitrary set of pending tasks (host-vacancy, async windows, archival, …).
+  // Not a domain entity — plumbing alongside the 7 domain tables.
+  sql.exec(`CREATE TABLE IF NOT EXISTS scheduled_task (
+    id      TEXT PRIMARY KEY,
+    at      INTEGER NOT NULL,
+    type    TEXT NOT NULL,
+    payload TEXT
+  )`);
+  sql.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_task_at ON scheduled_task(at)`);
 }
