@@ -23,7 +23,7 @@ function fakeSock(attachment: unknown): { ws: WebSocket; sent: Envelope[] } {
   };
 }
 
-async function makeRoomWithHost(): Promise<{
+async function makeRoomWithHost(opts: { initialState?: 'lobby' | 'active' } = {}): Promise<{
   room: Room;
   state: DurableObjectState;
   sockets: WebSocket[];
@@ -40,8 +40,12 @@ async function makeRoomWithHost(): Promise<{
       hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'sync',
     }),
   }));
-  // Move the room into the 'active' state — host_vacant only flips from there.
-  state.storage.sql.exec(`UPDATE room SET state = 'active'`);
+  // S7.ii-fix: default to 'active' for legacy tests, but allow callers to
+  // exercise the real-world premise (rooms start 'lobby' and OQ-011 means
+  // they stay that way until that FSM transition lands).
+  if (opts.initialState !== 'lobby') {
+    state.storage.sql.exec(`UPDATE room SET state = 'active'`);
+  }
   const hostSock = fakeSock({ voterId: HOST_ID, role: 'host' });
   sockets.push(hostSock.ws);
   return { room, state, sockets, hostSock };
@@ -241,6 +245,101 @@ describe('host-vacancy — alarm fire: no-op when conditions changed', () => {
         .exec<{ state: string }>(`SELECT state FROM room LIMIT 1`).toArray()[0];
       // closing should remain — we don't trample it on a vacancy fire.
       expect(stateRow.state).toBe('closing');
+      expect(voterSock.sent.find((m) => m.type === 'HOST_VACANT')).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---- S7.ii-fix: integration premise + new exclude-list guards ----
+
+describe('host-vacancy — INTEGRATION PREMISE (the test the original suite was missing)', () => {
+  it('LOBBY room + host leaves + alarm fires → host_vacant + HOST_VACANT broadcast', async () => {
+    // The premise the production probe exposed: rooms are created 'lobby' and
+    // nothing flips them to 'active' yet (OQ-011). The fire MUST work here,
+    // not just under a synthetic UPDATE state='active' in setup.
+    vi.useFakeTimers();
+    vi.setSystemTime(6_000_000);
+    try {
+      const { room, state, sockets, hostSock } = await makeRoomWithHost({ initialState: 'lobby' });
+      // Sanity: this room really is 'lobby' (the bug the fix addresses).
+      expect(
+        state.storage.sql.exec<{ state: string }>(`SELECT state FROM room`).toArray()[0].state,
+      ).toBe('lobby');
+
+      const voterSock = fakeSock({ voterId: VOTER_ID, role: 'voter' });
+      sockets.push(voterSock.ws);
+      sockets.splice(sockets.indexOf(hostSock.ws), 1);
+      await room.webSocketClose(hostSock.ws, 1006, '', false);
+
+      vi.setSystemTime(6_000_000 + HOST_VACANT_GRACE_MS + 1);
+      await room.alarm();
+
+      const roomRow = state.storage.sql
+        .exec<{ state: string; host_vacant_since: number | null }>(
+          `SELECT state, host_vacant_since FROM room LIMIT 1`,
+        ).toArray()[0];
+      expect(roomRow.state).toBe('host_vacant');
+      expect(roomRow.host_vacant_since).toBe(6_000_000);
+      expect(voterSock.sent.find((m) => m.type === 'HOST_VACANT')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('host-vacancy — exclude-list no-ops', () => {
+  it('room.state === "archived" → no transition (terminal)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(7_000_000);
+    try {
+      const { room, state, sockets, hostSock } = await makeRoomWithHost();
+      const voterSock = fakeSock({ voterId: VOTER_ID, role: 'voter' });
+      sockets.push(voterSock.ws);
+      sockets.splice(sockets.indexOf(hostSock.ws), 1);
+      await room.webSocketClose(hostSock.ws, 1006, '', false);
+
+      state.storage.sql.exec(`UPDATE room SET state = 'archived'`);
+
+      vi.setSystemTime(7_000_000 + HOST_VACANT_GRACE_MS + 1);
+      await room.alarm();
+
+      const stateRow = state.storage.sql
+        .exec<{ state: string }>(`SELECT state FROM room LIMIT 1`).toArray()[0];
+      expect(stateRow.state).toBe('archived');
+      expect(voterSock.sent.find((m) => m.type === 'HOST_VACANT')).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('room.state === "host_vacant" (already vacant — idempotency) → no transition, no second broadcast', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(8_000_000);
+    try {
+      const { room, state, sockets, hostSock } = await makeRoomWithHost();
+      const voterSock = fakeSock({ voterId: VOTER_ID, role: 'voter' });
+      sockets.push(voterSock.ws);
+      sockets.splice(sockets.indexOf(hostSock.ws), 1);
+      await room.webSocketClose(hostSock.ws, 1006, '', false);
+
+      // Some other path already flipped vacancy + recorded a since value.
+      state.storage.sql.exec(
+        `UPDATE room SET state = 'host_vacant', host_vacant_since = ?`,
+        7_999_900,
+      );
+
+      vi.setSystemTime(8_000_000 + HOST_VACANT_GRACE_MS + 1);
+      await room.alarm();
+
+      // hostVacantSince stays at the earlier value; no second broadcast.
+      const stateRow = state.storage.sql
+        .exec<{ state: string; host_vacant_since: number | null }>(
+          `SELECT state, host_vacant_since FROM room LIMIT 1`,
+        ).toArray()[0];
+      expect(stateRow.state).toBe('host_vacant');
+      expect(stateRow.host_vacant_since).toBe(7_999_900);
       expect(voterSock.sent.find((m) => m.type === 'HOST_VACANT')).toBeUndefined();
     } finally {
       vi.useRealTimers();

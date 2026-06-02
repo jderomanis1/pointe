@@ -18,6 +18,20 @@ export const HOST_VACANT_GRACE_MS = 30_000;
 /** Payload schema for the scheduled `host_vacant` task. */
 type HostVacantTaskPayload = { hostVoterId: string; disconnectedAt: number };
 
+/**
+ * S7.ii guard (c) — states the vacancy fire SHOULD skip. The original spec
+ * wording was "don't transition a closing / archived / already-vacant room";
+ * the first cut coded it as `state === 'active'`, which also excluded `lobby`
+ * — a state the intent never meant to exclude. Lobby rooms (created, link
+ * shared, no activity yet) are a legitimate vacancy case if the host drops.
+ *
+ * OQ-011 (filed at this fix): the room FSM never transitions lobby → active
+ * today (`openVoting` flips story state, not room state). Until that lands,
+ * effectively every vacancy fire is on a lobby room. Even after, lobby + active
+ * are both eligible; this exclude-list expresses the actual rule.
+ */
+const VACANCY_INELIGIBLE_STATES = new Set<string>(['closing', 'archived', 'host_vacant']);
+
 type InitBody = {
   roomId: string;
   slug: string;
@@ -157,8 +171,11 @@ export class Room {
 
   /**
    * S7.ii: the alarm fired — but a fire only means "30s elapsed," not "host
-   * is gone." Re-check (a) hostVoterId unchanged, (b) host still absent
-   * (no live attached socket bound to them), (c) room is still `active`.
+   * is gone." Re-check
+   *   (a) room is in a vacancy-eligible state (not closing / archived /
+   *       already host_vacant — see VACANCY_INELIGIBLE_STATES),
+   *   (b) hostVoterId unchanged (no transfer happened),
+   *   (c) host still absent (no live attached socket bound to them).
    * Any failing check → silent no-op. This is the idempotency contract.
    */
   private handleHostVacantFire(payload: HostVacantTaskPayload | null): void {
@@ -168,7 +185,7 @@ export class Room {
     }
     const lifecycle = getRoomLifecycle(this.sql);
     if (!lifecycle) return;
-    if (lifecycle.state !== 'active') return;
+    if (VACANCY_INELIGIBLE_STATES.has(lifecycle.state)) return;
     if (lifecycle.hostVoterId !== payload.hostVoterId) return;
     if (this.hostIsLive(payload.hostVoterId)) return;
 
