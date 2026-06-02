@@ -6,6 +6,7 @@ import { StoryQueue } from './StoryQueue';
 import { EmptyState } from './EmptyState';
 import { ThemeToggle } from './ThemeToggle';
 import { ShareLink } from './EmptyState';
+import { VotingStage } from './VotingStage';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -31,6 +32,7 @@ export function RoomShell({
   const isHost = me?.voterId !== undefined
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
+  const activeStory = stories.find((s) => s.state === 'active') ?? null;
 
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
@@ -56,6 +58,12 @@ export function RoomShell({
               isHost={isHost}
               addStorySlot={addStorySlot}
             />
+          ) : activeStory ? (
+            <>
+              <VotingStage story={activeStory} />
+              <StoryQueue />
+              {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
+            </>
           ) : (
             <>
               {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
@@ -64,15 +72,12 @@ export function RoomShell({
                 <div className="mt-2">
                   <ShareLink slug={slug} />
                   <p className="text-text-muted text-caption mt-2">
-                    Voters: paste this link to invite teammates. Voting cards arrive in R5.
+                    Voters: paste this link to invite teammates.
                   </p>
                 </div>
               ) : null}
             </>
           )}
-          <p className="text-text-muted text-caption">
-            Read-only view — voting deck, reveal, and host controls arrive in R5.
-          </p>
         </div>
       </div>
     </main>
