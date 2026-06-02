@@ -84,6 +84,7 @@
   --text-caption: 0.75rem;      /* 12px — chips/captions, +0.02em tracking */
   --text-micro: 0.75rem;        /* 12px */
   --text-num: 1.25rem;          /* 20px — vote chips, stats */
+  --text-num-hero: 2.75rem;     /* 44px — the reveal median verdict */
 
   --tracking-caption: 0.02em;
   --leading-tight: 1.15;

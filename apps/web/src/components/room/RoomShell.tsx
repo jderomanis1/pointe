@@ -32,7 +32,9 @@ export function RoomShell({
   const isHost = me?.voterId !== undefined
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
-  const activeStory = stories.find((s) => s.state === 'active') ?? null;
+  // The stage holds focus while a story is being voted on OR has just been revealed.
+  // R5.v's COMMIT_STORY moves a revealed story to 'committed' → the queue takes over again.
+  const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
 
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
@@ -58,9 +60,9 @@ export function RoomShell({
               isHost={isHost}
               addStorySlot={addStorySlot}
             />
-          ) : activeStory ? (
+          ) : focusStory ? (
             <>
-              <VotingStage story={activeStory} />
+              <VotingStage story={focusStory} />
               <StoryQueue />
               {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
             </>
