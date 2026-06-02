@@ -1,0 +1,73 @@
+@import './tokens.css';
+@import 'tailwindcss';
+
+/* Bridge: expose our semantic tokens as Tailwind utilities.
+ * `@theme inline` references the CSS vars at use-site, so dark-theme overrides
+ * on [data-theme="dark"] flow through utilities like bg-bg, text-text, etc.
+ */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-sunken: var(--color-sunken);
+  --color-fill: var(--color-fill);
+
+  --color-text: var(--color-text);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-disabled: var(--color-text-disabled);
+
+  --color-hairline: var(--color-hairline);
+
+  --color-accent: var(--color-accent);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-active: var(--color-accent-active);
+  --color-accent-tint: var(--color-accent-tint);
+
+  --color-gold: var(--color-gold);
+
+  --color-success: var(--color-success);
+  --color-success-surface: var(--color-success-surface);
+  --color-success-on: var(--color-success-on);
+
+  --color-warning: var(--color-warning);
+  --color-warning-surface: var(--color-warning-surface);
+  --color-warning-on: var(--color-warning-on);
+
+  --color-error: var(--color-error);
+  --color-error-surface: var(--color-error-surface);
+  --color-error-on: var(--color-error-on);
+
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+
+  --text-display: var(--text-display);
+  --text-heading: var(--text-heading);
+  --text-subhead: var(--text-subhead);
+  --text-body: var(--text-body);
+  --text-meta: var(--text-meta);
+  --text-small: var(--text-small);
+  --text-caption: var(--text-caption);
+  --text-micro: var(--text-micro);
+  --text-num: var(--text-num);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
+  --duration-fast: var(--duration-fast);
+  --duration-base: var(--duration-base);
+}
+
+html, body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+}

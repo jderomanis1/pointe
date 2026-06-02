@@ -1,23 +1,23 @@
+import { Route, Routes, useParams } from 'react-router-dom';
+import { Preview } from './Preview';
+import { CreatePage } from './pages/CreatePage';
+import { NotFound } from './pages/NotFound';
+import { RoomPage } from './pages/RoomPage';
+import { isRoomSlug } from './lib/slug';
+
+function SlugRoute() {
+  const { slug = '' } = useParams<{ slug: string }>();
+  if (!isRoomSlug(slug)) return <NotFound />;
+  return <RoomPage slug={slug} />;
+}
+
 export function App() {
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        padding: '4rem 2rem',
-        maxWidth: '600px',
-        margin: '0 auto',
-        textAlign: 'center',
-      }}
-    >
-      <h1 style={{ fontSize: '3rem', fontWeight: 400, letterSpacing: '-0.02em' }}>
-        Pointe
-      </h1>
-      <p style={{ fontStyle: 'italic', color: '#666', marginTop: '1rem' }}>
-        Planning poker that respects your team&apos;s time and judgment.
-      </p>
-      <p style={{ marginTop: '2rem', color: '#999', fontSize: '0.875rem' }}>
-        Phase 2 — under active development.
-      </p>
-    </main>
+    <Routes>
+      <Route path="/" element={<CreatePage />} />
+      <Route path="/preview" element={<Preview />} />
+      <Route path="/:slug" element={<SlugRoute />} />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 }
