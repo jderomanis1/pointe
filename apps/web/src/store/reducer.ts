@@ -267,6 +267,19 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
         ),
       };
 
+    case 'story_split': {
+      // Parent → terminal 'split' (stays visible as context); children land
+      // pending. Re-sort by orderIndex so children appear in the parent's slot.
+      // If the parent was the focused story, RoomShell drops it from focus
+      // (no longer active||revealed) — same exit as skip.
+      const withParent = state.stories.map((s) =>
+        s.id === change.parentId ? { ...s, state: 'split' as const } : s,
+      );
+      const next = [...withParent, ...change.children]
+        .sort((a, b) => a.orderIndex - b.orderIndex);
+      return { ...state, stories: next };
+    }
+
     default: {
       // Compile-time check: adding a new DeltaChange kind without handling it fails typecheck.
       const _exhaustive: never = change;

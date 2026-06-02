@@ -244,7 +244,8 @@ export type DeltaChange =
   | { kind: 'voting_opened'; storyId: string }
   | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
   | { kind: 'story_committed'; storyId: string; finalEstimate: string }
-  | { kind: 'story_skipped'; storyId: string };
+  | { kind: 'story_skipped'; storyId: string }
+  | { kind: 'story_split'; parentId: string; children: Story[] };
 
 export type DeltaPayload = { changes: DeltaChange[] };
 
@@ -279,3 +280,19 @@ export type RevealVotesPayload = { storyId: string };
 export type CommitStoryPayload = { storyId: string; finalEstimate: string };
 /** S7 SKIP_STORY — host skips a story (terminal). pending/active/revealed only. */
 export type SkipStoryPayload = { storyId: string };
+
+/**
+ * S7 SPLIT_STORY — host breaks one story into N children. Parent → 'split'
+ * (terminal); children inserted as 'pending' in the parent's queue slot
+ * (sparse orderIndex; tail resequence if the gap is too tight).
+ *
+ * Constraints (server-enforced): MIN_CHILDREN ≤ children.length ≤ MAX_CHILDREN,
+ * each `text` trimmed non-empty. Parent must be in a non-terminal state
+ * (pending / active / revealed).
+ */
+export type SplitStoryPayload = {
+  storyId: string;
+  children: { text: string }[];
+};
+export const SPLIT_MIN_CHILDREN = 2;
+export const SPLIT_MAX_CHILDREN = 8;

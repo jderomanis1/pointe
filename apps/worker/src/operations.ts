@@ -2,6 +2,7 @@ import type { SqlStorage } from '@cloudflare/workers-types';
 import type {
   AuditEventType, DeckType, Room, RoomMode, Story, Vote, Voter, VoterRole,
 } from '@pointe/shared';
+import { SPLIT_MAX_CHILDREN, SPLIT_MIN_CHILDREN } from '@pointe/shared';
 
 /** Worker-internal read result. NOT the protocol snapshot — that's R2. */
 export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; votes: Vote[] };
@@ -482,6 +483,95 @@ export function skipStory(sql: SqlStorage, params: { storyId: string }): Story {
   sql.exec(`UPDATE story SET state = 'skipped' WHERE id = ?`, params.storyId);
   const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
   return mapStoryRow(updated, getRoomId(sql));
+}
+
+/**
+ * S7 SPLIT_STORY: parent → 'split' terminal; N pending children land in the
+ * parent's queue slot, linked via `splitParentId`.
+ *
+ * Placement (sparse orderIndex, addStory-style):
+ *   - Children get integer positions strictly between parent and the next story.
+ *   - If the gap is too tight to fit N children with ≥1 spacing, shift the
+ *     tail (every order_index >= next) up by enough to make a comfortable
+ *     gap (100·(N+1)). One-time, scoped to that point.
+ *   - Parent last in queue → children placed at parent + 100·k (no resequence).
+ *
+ * Atomic: all writes (parent UPDATE + optional tail shift + N INSERTs) run
+ * synchronously within one handler tick; the DO storage layer commits them
+ * as a single transaction at the next async boundary. The handler awaits
+ * nothing between writes.
+ *
+ * Cheap-by-design (mirrors skip): parent's votes (if active/revealed) stay
+ * inert. No clear, no audit.
+ */
+export function splitStory(
+  sql: SqlStorage,
+  params: { storyId: string; childTexts: string[]; now: number },
+): { parent: Story; children: Story[] } {
+  const parentRow = sql
+    .exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId)
+    .toArray()[0];
+  if (!parentRow) throw new Error('STORY_NOT_FOUND');
+  if (parentRow.state !== 'pending' && parentRow.state !== 'active' && parentRow.state !== 'revealed') {
+    throw new Error('STORY_NOT_SPLITTABLE');
+  }
+  if (params.childTexts.length < SPLIT_MIN_CHILDREN) throw new Error('TOO_FEW_CHILDREN');
+  if (params.childTexts.length > SPLIT_MAX_CHILDREN) throw new Error('TOO_MANY_CHILDREN');
+  const cleaned = params.childTexts.map((t) => t.trim());
+  if (cleaned.some((t) => t.length === 0)) throw new Error('EMPTY_CHILD_TEXT');
+
+  const N = cleaned.length;
+  const P = parentRow.order_index;
+  const nextRow = sql
+    .exec<{ next: number | null }>(
+      `SELECT MIN(order_index) AS next FROM story WHERE order_index > ?`,
+      P,
+    )
+    .toArray()[0];
+  const nextOrder = nextRow?.next ?? null;
+
+  let positions: number[];
+  if (nextOrder === null) {
+    // Parent is last — pad the tail with 100-step children.
+    positions = Array.from({ length: N }, (_, i) => P + (i + 1) * 100);
+  } else {
+    let gap = nextOrder - P;
+    if (gap < N + 1) {
+      // Tail resequence: shift every story at or after `nextOrder` so the gap
+      // can fit N children with ≥1 spacing (comfortably more — 100·(N+1)).
+      const shift = 100 * (N + 1) - gap;
+      sql.exec(
+        `UPDATE story SET order_index = order_index + ? WHERE order_index >= ?`,
+        shift, nextOrder,
+      );
+      gap = 100 * (N + 1);
+    }
+    const step = Math.floor(gap / (N + 1));
+    positions = Array.from({ length: N }, (_, i) => P + step * (i + 1));
+  }
+
+  // Parent → split terminal.
+  sql.exec(`UPDATE story SET state = 'split' WHERE id = ?`, params.storyId);
+
+  const roomId = getRoomId(sql);
+  const children: Story[] = [];
+  for (let i = 0; i < N; i++) {
+    const childId = crypto.randomUUID();
+    sql.exec(
+      `INSERT INTO story (id, order_index, text, external_id, external_url, description,
+        state, final_estimate, edited, split_parent_id, created_at, opened_at, revealed_at)
+       VALUES (?, ?, ?, NULL, NULL, NULL, 'pending', NULL, 0, ?, ?, NULL, NULL)`,
+      childId, positions[i], cleaned[i], params.storyId, params.now,
+    );
+    const row = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', childId).toArray()[0]!;
+    children.push(mapStoryRow(row, roomId));
+  }
+
+  const updated = sql.exec<StoryRow>('SELECT * FROM story WHERE id = ?', params.storyId).toArray()[0]!;
+  return {
+    parent: mapStoryRow(updated, roomId),
+    children,
+  };
 }
 
 /** Commit a revealed story with the agreed final estimate. */

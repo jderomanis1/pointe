@@ -63,6 +63,7 @@ export function projectChangesFor(
       case 'votes_revealed':
       case 'story_committed':
       case 'story_skipped':
+      case 'story_split':
         return true;
       default: {
         // Unknown future kind — drop defensively so accidental new payloads can't auto-leak.
