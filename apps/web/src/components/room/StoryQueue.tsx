@@ -40,6 +40,14 @@ function StoryRow({
             Open voting
           </Button>
         ) : null}
+        {s.state === 'committed' && s.finalEstimate ? (
+          <span
+            className="font-mono text-num text-text"
+            aria-label={`Final estimate ${s.finalEstimate}`}
+          >
+            {s.finalEstimate}
+          </span>
+        ) : null}
         {stateBadge(s.state)}
       </div>
     </li>

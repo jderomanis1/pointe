@@ -6,6 +6,8 @@ import { Button } from '../Button';
 import { VoterSeats } from './VoterSeats';
 import { CastPanel } from './CastPanel';
 import { RevealStats } from './RevealStats';
+import { CommitPanel } from './CommitPanel';
+import { LongText } from './LongText';
 import { useSend } from './RoomClientContext';
 
 /**
@@ -67,9 +69,13 @@ export function VotingStage({ story }: { story: Story }) {
             </div>
           ) : null}
         </div>
-        <h2 className="font-serif text-heading text-text break-words">{story.text}</h2>
+        <h2 className="font-serif text-heading text-text break-words">
+          <LongText text={story.text} expandLabel="Show full title" collapseLabel="Show less" />
+        </h2>
         {story.description ? (
-          <p className="text-body text-text-secondary max-w-prose">{story.description}</p>
+          <p className="text-body text-text-secondary max-w-prose">
+            <LongText text={story.description} />
+          </p>
         ) : null}
       </header>
 
@@ -80,7 +86,10 @@ export function VotingStage({ story }: { story: Story }) {
       />
 
       {isRevealed ? (
-        <RevealStats storyId={story.id} animateReveal={animateReveal} />
+        <>
+          <RevealStats storyId={story.id} animateReveal={animateReveal} />
+          {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
+        </>
       ) : (
         <div data-slot="cast">
           {canVote ? <CastPanel story={story} /> : null}
