@@ -8,6 +8,7 @@ import { CastPanel } from './CastPanel';
 import { RevealStats } from './RevealStats';
 import { CommitPanel } from './CommitPanel';
 import { LongText } from './LongText';
+import { SplitForm } from './SplitForm';
 import { useSend } from './RoomClientContext';
 
 /**
@@ -33,6 +34,8 @@ export function VotingStage({ story }: { story: Story }) {
   // --- reveal-edge detection (animation B fires once on the live transition) ---
   const prevState = useRef<Story['state']>(story.state);
   const [animateReveal, setAnimateReveal] = useState(false);
+  // --- split form toggle (host-only; can be opened in active or revealed) ---
+  const [splitOpen, setSplitOpen] = useState(false);
   useEffect(() => {
     if (prevState.current === 'active' && story.state === 'revealed') {
       setAnimateReveal(true);
@@ -58,13 +61,38 @@ export function VotingStage({ story }: { story: Story }) {
           ) : null}
           {story.edited ? <Badge variant="neutral">edited</Badge> : null}
           {isHost && story.state === 'active' ? (
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSplitOpen((o) => !o)}
+              >
+                {splitOpen ? 'Cancel split' : 'Split'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => send('SKIP_STORY', { storyId: story.id })}
+              >
+                Skip story
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => send('REVEAL_VOTES', { storyId: story.id })}
               >
                 Reveal votes
+              </Button>
+            </div>
+          ) : null}
+          {isHost && story.state === 'revealed' ? (
+            <div className="ml-auto">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSplitOpen((o) => !o)}
+              >
+                {splitOpen ? 'Cancel split' : 'Split'}
               </Button>
             </div>
           ) : null}
@@ -84,6 +112,10 @@ export function VotingStage({ story }: { story: Story }) {
         mode={isRevealed ? 'revealed' : 'active'}
         animateReveal={animateReveal}
       />
+
+      {isHost && splitOpen && (story.state === 'active' || story.state === 'revealed') ? (
+        <SplitForm storyId={story.id} onClose={() => setSplitOpen(false)} />
+      ) : null}
 
       {isRevealed ? (
         <>
