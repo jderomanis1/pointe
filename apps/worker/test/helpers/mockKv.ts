@@ -14,20 +14,3 @@ export function createMockKv(): KVNamespace & { __dump(): Map<string, string> } 
     __dump: () => store,
   } as unknown as KVNamespace & { __dump(): Map<string, string> };
 }
-
-/** Minimal in-memory RateLimit binding mock; success is configurable per-call. */
-export function createMockRateLimit(initial: { success: boolean } = { success: true }): {
-  binding: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
-  calls: { key: string }[];
-  setSuccess(s: boolean): void;
-} {
-  const calls: { key: string }[] = [];
-  let success = initial.success;
-  return {
-    binding: {
-      limit: async (opts) => { calls.push(opts); return { success }; },
-    },
-    calls,
-    setSuccess(s: boolean) { success = s; },
-  };
-}
