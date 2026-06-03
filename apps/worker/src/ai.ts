@@ -144,6 +144,42 @@ export function putAiCache(
   );
 }
 
+// ---- AA-1 recipient-scoped projection (S8.i.b) -----------------------------
+
+/**
+ * AA-1 enforcement point: decide what AI a recipient may see for a story.
+ *
+ * Returns the AISuggestion (possibly partial — pending/failed states carry
+ * only the bookkeeping fields), or `undefined` when AA-1 forbids any exposure.
+ * Callers MUST treat `undefined` as "omit the `ai` key entirely" — not as null,
+ * not as an empty object. A non-host story object must be structurally
+ * identical to one where AI was never requested.
+ *
+ *   host, ready    → full AISuggestion
+ *   host, failed   → { storyId, state, errorMessage, requestedAt, completedAt? }
+ *   host, other    → { storyId, state, requestedAt }                  // spinner
+ *   non-host, revealed/committed + shared=1 + ready → full AISuggestion
+ *   non-host, anything else                          → undefined
+ *
+ * The non-host branch deliberately checks story.state, not just suggestion.state:
+ * the share contract is "host may surface it after reveal" — pre-reveal share is
+ * not a state the dispatcher should produce, but defending the invariant at the
+ * projection point makes that impossible to leak by mistake.
+ */
+export function projectAiForRecipient(
+  storyState: string,
+  suggestion: AISuggestion | null,
+  isHost: boolean,
+): AISuggestion | undefined {
+  if (!suggestion) return undefined;
+  if (isHost) return suggestion;
+  const revealed = storyState === 'revealed' || storyState === 'committed';
+  if (revealed && suggestion.shared === true && suggestion.state === 'ready') {
+    return suggestion;
+  }
+  return undefined;
+}
+
 // ---- ai_rate_limit ---------------------------------------------------------
 
 /**
