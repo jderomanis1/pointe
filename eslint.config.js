@@ -9,7 +9,10 @@ const baseGlobals = {
 
 const workerGlobals = {
   ...baseGlobals,
+  AbortController: 'readonly',
+  AbortSignal: 'readonly',
   Request: 'readonly',
+  RequestInit: 'readonly',
   Response: 'readonly',
   Headers: 'readonly',
   URL: 'readonly',

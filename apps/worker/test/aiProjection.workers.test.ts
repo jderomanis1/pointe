@@ -13,7 +13,7 @@
  * (which will diff snapshot + every delta + reveal).
  */
 import { describe, it, expect } from 'vitest';
-import type { Envelope, RoomSnapshot, SnapshotStory } from '@pointe/shared';
+import type { AISuggestion, Envelope, RoomSnapshot, SnapshotStory } from '@pointe/shared';
 import { handleMessage } from '../src/dispatcher';
 import { projectAiForRecipient, upsertAiSuggestion } from '../src/ai';
 import {
@@ -24,19 +24,19 @@ import { withRoom } from './helpers/pool';
 // ---- (a) the pure projector --------------------------------------------------
 
 describe('S8.i.b — projectAiForRecipient (pure)', () => {
-  const READY = {
-    storyId: 'st-1',
-    state: 'ready' as const,
-    complexity: { level: 'medium' as const, note: 'm' },
-    effort: { level: 'low' as const, note: 'e' },
-    risk: { level: 'low' as const, note: 'r' },
-    unknowns: { level: 'low' as const, note: 'u' },
+  const READY_UNSHARED: AISuggestion = {
+    state: 'ready',
+    complexity: { level: 'medium', note: 'm' },
+    effort: { level: 'low', note: 'e' },
+    risk: { level: 'low', note: 'r' },
+    unknowns: { level: 'low', note: 'u' },
     suggestedRange: { low: '3', high: '5' },
     rationale: 'because',
-    requestedAt: 1, completedAt: 2,
+    shared: false,
   };
-  const PENDING = { storyId: 'st-1', state: 'pending' as const, requestedAt: 1 };
-  const FAILED = { storyId: 'st-1', state: 'failed' as const, errorMessage: 'TIMEOUT', requestedAt: 1, completedAt: 2 };
+  const READY_SHARED: AISuggestion = { ...READY_UNSHARED, shared: true };
+  const PENDING: AISuggestion = { state: 'pending' };
+  const FAILED: AISuggestion = { state: 'failed', errorMessage: 'TIMEOUT' };
 
   it('no suggestion row → undefined for every recipient', () => {
     expect(projectAiForRecipient('active', null, true)).toBeUndefined();
@@ -45,34 +45,35 @@ describe('S8.i.b — projectAiForRecipient (pure)', () => {
   });
 
   it('host sees ready / pending / failed throughout', () => {
-    expect(projectAiForRecipient('pending', READY, true)).toEqual(READY);
+    expect(projectAiForRecipient('pending', READY_UNSHARED, true)).toEqual(READY_UNSHARED);
     expect(projectAiForRecipient('active', PENDING, true)).toEqual(PENDING);
     expect(projectAiForRecipient('active', FAILED, true)).toEqual(FAILED);
-    expect(projectAiForRecipient('revealed', READY, true)).toEqual(READY);
+    expect(projectAiForRecipient('revealed', READY_UNSHARED, true)).toEqual(READY_UNSHARED);
   });
 
   it('non-host active story + ready unshared → undefined (AA-1)', () => {
-    expect(projectAiForRecipient('active', READY, false)).toBeUndefined();
+    expect(projectAiForRecipient('active', READY_UNSHARED, false)).toBeUndefined();
   });
 
-  it('non-host revealed + ready BUT shared=0 → undefined (AA-1)', () => {
-    expect(projectAiForRecipient('revealed', READY, false)).toBeUndefined();
-    expect(projectAiForRecipient('committed', READY, false)).toBeUndefined();
+  it('non-host revealed + ready BUT shared=false → undefined (AA-1)', () => {
+    expect(projectAiForRecipient('revealed', READY_UNSHARED, false)).toBeUndefined();
+    expect(projectAiForRecipient('committed', READY_UNSHARED, false)).toBeUndefined();
   });
 
   it('non-host revealed + ready + shared=true → full suggestion', () => {
-    const shared = { ...READY, shared: true, sharedAt: 999 };
-    expect(projectAiForRecipient('revealed', shared, false)).toEqual(shared);
-    expect(projectAiForRecipient('committed', shared, false)).toEqual(shared);
+    expect(projectAiForRecipient('revealed', READY_SHARED, false)).toEqual(READY_SHARED);
+    expect(projectAiForRecipient('committed', READY_SHARED, false)).toEqual(READY_SHARED);
   });
 
-  it('non-host: shared=true but state != ready → undefined (no surfacing of pending/failed to voters even post-reveal)', () => {
-    expect(projectAiForRecipient('revealed', { ...PENDING, shared: true }, false)).toBeUndefined();
-    expect(projectAiForRecipient('revealed', { ...FAILED, shared: true }, false)).toBeUndefined();
+  it('non-host: state != ready → undefined (pending/failed are not shareable by construction)', () => {
+    // The union doesn't allow `shared` on pending/failed; verify the projector
+    // doesn't expose those states post-reveal even if a caller forced one in.
+    expect(projectAiForRecipient('revealed', PENDING, false)).toBeUndefined();
+    expect(projectAiForRecipient('revealed', FAILED, false)).toBeUndefined();
   });
 
   it('non-host: shared=true on an ACTIVE story → undefined (AA-1 defends against a malformed pre-reveal share)', () => {
-    expect(projectAiForRecipient('active', { ...READY, shared: true }, false)).toBeUndefined();
+    expect(projectAiForRecipient('active', READY_SHARED, false)).toBeUndefined();
   });
 });
 
@@ -147,22 +148,22 @@ describe('S8.i.b — snapshot serializer obeys AA-1', () => {
       const snap = snapshotFor(sql, HOST, 'host');
       const s = storyById(snap, 'st-active');
       expect(s.ai).toBeDefined();
-      expect(s.ai!.state).toBe('ready');
-      expect(s.ai!.suggestedRange).toEqual({ low: '3', high: '5' });
+      if (s.ai!.state !== 'ready') throw new Error('expected ready');
+      expect(s.ai.suggestedRange).toEqual({ low: '3', high: '5' });
     });
   });
 
-  it('host snapshot: pending suggestion appears as { storyId, state, requestedAt } (spinner data)', async () => {
+  it('host snapshot: pending suggestion appears as { state: "pending" } (spinner data)', async () => {
     await withRoom((sql) => {
       seedRoomWithStories(sql);
       upsertAiSuggestion(sql, { storyId: 'st-active', state: 'pending', requestedAt: 105 });
       const snap = snapshotFor(sql, HOST, 'host');
       const s = storyById(snap, 'st-active');
-      expect(s.ai).toEqual({ storyId: 'st-active', state: 'pending', requestedAt: 105 });
+      expect(s.ai).toEqual({ state: 'pending' });
     });
   });
 
-  it('host snapshot: failed suggestion appears with errorMessage', async () => {
+  it('host snapshot: failed suggestion appears as { state, errorMessage } — bookkeeping fields stay storage-only', async () => {
     await withRoom((sql) => {
       seedRoomWithStories(sql);
       upsertAiSuggestion(sql, {
@@ -171,10 +172,7 @@ describe('S8.i.b — snapshot serializer obeys AA-1', () => {
       });
       const snap = snapshotFor(sql, HOST, 'host');
       const s = storyById(snap, 'st-active');
-      expect(s.ai).toEqual({
-        storyId: 'st-active', state: 'failed', errorMessage: 'API_TIMEOUT',
-        requestedAt: 100, completedAt: 110,
-      });
+      expect(s.ai).toEqual({ state: 'failed', errorMessage: 'API_TIMEOUT' });
     });
   });
 
@@ -236,9 +234,14 @@ describe('S8.i.b — snapshot serializer obeys AA-1', () => {
       const snap = snapshotFor(sql, VOTER, 'voter');
       const s = storyById(snap, 'st-rev');
       expect(s.ai).toBeDefined();
-      expect(s.ai!.shared).toBe(true);
-      expect(s.ai!.sharedAt).toBe(230);
-      expect(s.ai!.suggestedRange).toEqual({ low: '2', high: '3' });
+      if (s.ai!.state !== 'ready') throw new Error('expected ready');
+      expect(s.ai.shared).toBe(true);
+      // sharedAt is storage-only (not on the wire union).
+      const row = sql
+        .exec<{ shared_at: number }>(`SELECT shared_at FROM ai_suggestion WHERE story_id = 'st-rev'`)
+        .toArray()[0];
+      expect(row.shared_at).toBe(230);
+      expect(s.ai.suggestedRange).toEqual({ low: '2', high: '3' });
     });
   });
 

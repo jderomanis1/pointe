@@ -85,19 +85,26 @@ describe('S8.i.a — ai_suggestion data-access', () => {
       });
       const read = getAiSuggestion(sql, 'st-1');
       expect(read).not.toBeNull();
-      expect(read!.storyId).toBe('st-1');
       expect(read!.state).toBe('ready');
+      // Discriminated union: TS narrows on state === 'ready'.
+      if (read!.state !== 'ready') throw new Error('expected ready');
       expect(read!.complexity).toEqual({ level: 'medium', note: 'CRUD plus a webhook' });
       expect(read!.suggestedRange).toEqual({ low: '3', high: '5' });
       expect(read!.rationale).toBe('Bounded scope with one unknown.');
-      expect(read!.requestedAt).toBe(1000);
-      expect(read!.completedAt).toBe(2000);
-      expect(read!.shared).toBeUndefined(); // default 0 → omitted on the typed read
-      expect(read!.errorMessage).toBeUndefined();
+      expect(read!.shared).toBe(false); // default 0 → false on the wire
+      // Bookkeeping fields (storyId/requestedAt/completedAt/sharedAt) live in
+      // the row only — they are NOT part of the wire-shape AISuggestion. The
+      // row-level assertions are exercised below via a direct SELECT.
+      const rawRow = sql
+        .exec<{ requested_at: number; completed_at: number }>(
+          `SELECT requested_at, completed_at FROM ai_suggestion WHERE story_id = 'st-1'`,
+        ).toArray()[0];
+      expect(rawRow.requested_at).toBe(1000);
+      expect(rawRow.completed_at).toBe(2000);
     });
   });
 
-  it('upsert a pending row (no payload) → read returns state + requestedAt, no CERU fields', async () => {
+  it('upsert a pending row (no payload) → read returns the pending wire shape only', async () => {
     await withRoom((sql) => {
       upsertAiSuggestion(sql, {
         storyId: 'st-pending',
@@ -105,11 +112,11 @@ describe('S8.i.a — ai_suggestion data-access', () => {
         requestedAt: 100,
       });
       const read = getAiSuggestion(sql, 'st-pending');
-      expect(read).toEqual({ storyId: 'st-pending', state: 'pending', requestedAt: 100 });
+      expect(read).toEqual({ state: 'pending' });
     });
   });
 
-  it('upsert a failed row → read returns state + errorMessage; no payload fields', async () => {
+  it('upsert a failed row → read returns the failed wire shape with errorMessage only', async () => {
     await withRoom((sql) => {
       upsertAiSuggestion(sql, {
         storyId: 'st-fail',
@@ -119,13 +126,7 @@ describe('S8.i.a — ai_suggestion data-access', () => {
         completedAt: 200,
       });
       const read = getAiSuggestion(sql, 'st-fail');
-      expect(read).toEqual({
-        storyId: 'st-fail',
-        state: 'failed',
-        errorMessage: 'API_TIMEOUT',
-        requestedAt: 100,
-        completedAt: 200,
-      });
+      expect(read).toEqual({ state: 'failed', errorMessage: 'API_TIMEOUT' });
     });
   });
 
