@@ -221,6 +221,20 @@ export type StoryAiReadyPayload = { storyId: string };
  *  message. AA-1: never delivered to non-hosts. */
 export type StoryAiFailedPayload = { storyId: string; errorMessage: string };
 
+/** S8.ii.c — SHARE_AI: host opts to surface the (ready) suggestion to the
+ *  room after reveal. The only path that crosses `ai` to a non-host. SI-02
+ *  host-only; story must be revealed/committed; suggestion must be ready. */
+export type ShareAiPayload = { storyId: string };
+
+/** S8.ii.c — AI_SHARED: server broadcast (to ALL connected sockets) after
+ *  a successful SHARE_AI. Carries the ready suggestion so clients can render
+ *  it immediately — snapshots/reveals from this point on also project it
+ *  via projectAiForRecipient (the row's `shared` flag is the persistent state). */
+export type AiSharedPayload = {
+  storyId: string;
+  ai: Extract<AISuggestion, { state: 'ready' }>;
+};
+
 /** S7.iii: a host-change occurred. `via` lets the UI tell the three stories apart. */
 export type HostReclaimedPayload = {
   newHostVoterId: string;

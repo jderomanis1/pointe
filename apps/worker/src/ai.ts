@@ -122,6 +122,36 @@ export function mapAiSuggestionRow(row: AiSuggestionRow): AISuggestion {
   return { state: 'pending' };
 }
 
+/**
+ * S8.ii.c — flip the `shared` flag on a ready suggestion. Idempotent by
+ * construction: `shared_at` is set only on the first flip (COALESCE preserves
+ * the original timestamp), so repeat calls don't double-write. Returns true
+ * iff a state transition happened (0 → 1); callers can use this to suppress a
+ * duplicate AI_SHARED broadcast or — by convention here — fire it anyway to
+ * cover a missed delivery.
+ */
+export function markAiSuggestionShared(
+  sql: SqlStorage,
+  params: { storyId: string; now: number },
+): { transitioned: boolean } {
+  const before = sql
+    .exec<{ shared: number; state: string }>(
+      'SELECT shared, state FROM ai_suggestion WHERE story_id = ?',
+      params.storyId,
+    )
+    .toArray()[0];
+  if (!before) return { transitioned: false };
+  if (before.state !== 'ready') return { transitioned: false };
+  if (before.shared === 1) return { transitioned: false };
+  sql.exec(
+    `UPDATE ai_suggestion
+       SET shared = 1, shared_at = COALESCE(shared_at, ?)
+     WHERE story_id = ? AND state = 'ready'`,
+    params.now, params.storyId,
+  );
+  return { transitioned: true };
+}
+
 /** Read the row shape directly — used by the serializer where the typed
  *  AISuggestion isn't needed (we only need the row's shared flag + state). */
 export function getAiSuggestionRow(sql: SqlStorage, storyId: string): AiSuggestionRow | null {
