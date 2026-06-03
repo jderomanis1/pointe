@@ -93,12 +93,19 @@ export class Room {
         // The Worker is the trust boundary for IP — it SETs X-Client-IP from
         // CF-Connecting-IP. A client-supplied X-Client-IP cannot reach this
         // handler because the Worker overrides it.
-        const limited = this.checkWsHandshakeRate(request);
-        if (limited) return limited;
+        const gate = this.checkWsHandshakeRate(request);
+        if (gate.limited) return gate.limited;
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
         this.ctx.acceptWebSocket(server); // hibernation accept — NOT server.accept()
-        return new Response(null, { status: 101, webSocket: client });
+        const res = new Response(null, { status: 101, webSocket: client });
+        // Temporary diagnostic headers — let a raw https probe read what the
+        // DO actually saw on each handshake. Removed in the cleanup commit
+        // once SI-06 is verified enforcing on prod.
+        res.headers.set('X-RL-IP', gate.ip);
+        res.headers.set('X-RL-Count', String(gate.count));
+        res.headers.set('X-RL-Window', String(gate.windowStart));
+        return res;
       }
       if (method === 'POST' && pathname === '/init') {
         const body = (await request.json()) as InitBody;
@@ -236,44 +243,62 @@ export class Room {
   }
 
   /**
-   * SI-06: atomic per-IP, per-room WS handshake rate (30/min). Read-check-
-   * increment runs synchronously in the DO's single-threaded execution loop —
-   * truly atomic, no cache, no race. Returns a 429 Response if over budget,
-   * else null.
+   * SI-06: atomic per-IP, per-room WS handshake rate (30/min).
    *
-   * Self-cleans stale rows (any window_start strictly older than the current
-   * minute) on every call. A single inbound IP keeps at most one row at a
-   * time; the table is bounded by distinct IPs hitting this room in the last
-   * minute.
+   * One atomic INSERT…ON CONFLICT DO UPDATE…RETURNING — increments the
+   * counter and reads the new value in a single statement. .one() is safe
+   * here because RETURNING always yields exactly one row.
+   *
+   * Why the upsert-returning shape: the prior SELECT-then-INSERT pattern
+   * read with .one() which throws on zero rows in real CF DO SQLite — the
+   * first handshake in every window would throw, the increment never
+   * landed, and the limit never tripped in prod. The mock used to silently
+   * return undefined for zero rows so unit tests passed. Both are fixed:
+   * this code never reads zero rows, AND the mock now throws on .one()
+   * with zero rows so a future bug of this shape couldn't hide again.
+   *
+   * Returns the diagnostics regardless of outcome — the caller attaches
+   * X-RL-* headers to the 101 response on the allowed path.
+   *
+   * Self-cleans stale rows (window_start < current) on every call so the
+   * table stays bounded by distinct IPs in the last minute.
    */
-  private checkWsHandshakeRate(request: Request): Response | null {
+  private checkWsHandshakeRate(request: Request): {
+    limited: Response | null;
+    ip: string;
+    count: number;
+    windowStart: number;
+  } {
     const ip = request.headers.get('X-Client-IP') ?? 'unknown';
     const now = Date.now();
     const windowStart = Math.floor(now / 60_000) * 60_000;
     this.sql.exec('DELETE FROM ws_handshake_rate WHERE window_start < ?', windowStart);
-    const row = this.sql
-      .exec<{ count: number }>(
-        'SELECT count FROM ws_handshake_rate WHERE ip = ? AND window_start = ?',
-        ip, windowStart,
-      )
-      .toArray()[0];
-    const current = row?.count ?? 0;
-    if (current >= RL_WS_PER_MIN) {
+    const result = this.sql.exec<{ count: number }>(
+      `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, 1)
+       ON CONFLICT(ip, window_start) DO UPDATE SET count = count + 1
+       RETURNING count`,
+      ip, windowStart,
+    ).one();
+    const count = result.count;
+    if (count > RL_WS_PER_MIN) {
       const body = {
         code: 'RATE_LIMITED',
         message: 'WebSocket handshake rate exceeded for this IP in this room.',
       };
-      return new Response(JSON.stringify(body), {
+      const limited = new Response(JSON.stringify(body), {
         status: 429,
-        headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          // Temporary diagnostics (removed in the cleanup commit).
+          'X-RL-IP': ip,
+          'X-RL-Count': String(count),
+          'X-RL-Window': String(windowStart),
+        },
       });
+      return { limited, ip, count, windowStart };
     }
-    this.sql.exec(
-      `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, 1)
-       ON CONFLICT(ip, window_start) DO UPDATE SET count = count + 1`,
-      ip, windowStart,
-    );
-    return null;
+    return { limited: null, ip, count, windowStart };
   }
 
   /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */
