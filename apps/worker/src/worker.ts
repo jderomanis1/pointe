@@ -20,6 +20,14 @@ export { Room };
 export interface Env {
   ROOM: DurableObjectNamespace;
   POINTE_SLUGS: KVNamespace;
+  /**
+   * S8 — Anthropic API key, set via `wrangler secret put ANTHROPIC_API_KEY`.
+   * Optional in this slice: the S8.ii.a generator is inert and reads it only
+   * when called, which doesn't happen until the S8.ii.b REQUEST_AI handler
+   * lands. Until then the binding can be unset in CI / preview without
+   * runtime impact.
+   */
+  ANTHROPIC_API_KEY?: string;
 }
 
 const SESSION_TTL_SECONDS = 86400; // 24h per SI-03

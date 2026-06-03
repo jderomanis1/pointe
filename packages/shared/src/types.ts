@@ -14,7 +14,7 @@ export type StoryState = 'pending' | 'active' | 'revealed' | 'committed' | 'skip
 export type VoterRole = 'voter' | 'spectator' | 'host';
 export type ConnectionState = 'connected' | 'reconnecting' | 'left';
 export type DimLevel = 'low' | 'medium' | 'high';
-export type AISuggestionState = 'pending' | 'ready' | 'failed' | 'unavailable';
+export type AISuggestionState = 'pending' | 'ready' | 'failed';
 
 export type AuditEventType =
   | 'room_created'
@@ -107,30 +107,33 @@ export type Vote = {
   // Logical primary key: (storyId, voterId) — one vote per voter per story.
 };
 
-export type AISuggestion = {
-  storyId: string;
-  state: AISuggestionState;
-  /**
-   * CERU dimensions + range + rationale are populated only when state === 'ready'.
-   * Pending / failed / unavailable states carry only the bookkeeping fields.
-   */
-  complexity?: { level: DimLevel; note: string };
-  effort?: { level: DimLevel; note: string };
-  risk?: { level: DimLevel; note: string };
-  unknowns?: { level: DimLevel; note: string };
-  suggestedRange?: { low: string; high: string };
-  rationale?: string;
-  errorMessage?: string;
-  requestedAt: number;
-  completedAt?: number;
-  /**
-   * Host-gated share flag (S8.iv): true once the host has explicitly chosen to
-   * surface the suggestion to voters after reveal. Until then AA-1 forbids
-   * voter-visible AI projection of this suggestion.
-   */
-  shared?: boolean;
-  sharedAt?: number;
-};
+/** One dimension of the CERU breakdown. */
+export type AIDim = { level: DimLevel; note: string };
+
+/**
+ * Wire shape of an AI suggestion. State-discriminated union so a `ready`
+ * suggestion guarantees its full CERU payload to consumers (and S8.iv UI
+ * gets exhaustiveness). Bookkeeping fields (storyId, requestedAt,
+ * completedAt, sharedAt) live in storage only — they are not part of the
+ * recipient-facing contract.
+ *
+ * `shared` appears only on `ready` (the only state the host may surface
+ * after reveal — pending/failed are not shareable by construction).
+ */
+export type AISuggestion =
+  | { state: 'pending' }
+  | { state: 'failed'; errorMessage: string }
+  | {
+      state: 'ready';
+      complexity: AIDim;
+      effort: AIDim;
+      risk: AIDim;
+      unknowns: AIDim;
+      suggestedRange: { low: string; high: string };
+      rationale: string;
+      /** Host-gated share flag (S8.iv). False until SHARE_AI lands. */
+      shared: boolean;
+    };
 
 export type AuditEvent = {
   id: string;
