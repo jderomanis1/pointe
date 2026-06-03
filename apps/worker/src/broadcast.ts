@@ -3,6 +3,7 @@ import type {
   DeltaChange, DeltaPayload, Envelope, ServerMessageType, VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
+import { projectAiForRecipient } from './ai';
 
 /** SI-01 binding shape stored via `ws.serializeAttachment`. */
 export type SocketAttachment = { voterId: string; role: VoterRole };
@@ -31,16 +32,28 @@ export function getAttachment(ws: WebSocket): SocketAttachment | null {
 
 /**
  * Pure projection: per-recipient anti-anchoring filter.
+ *
  * `vote_value` is the only caster-filtered kind (anti-anchoring on the active story);
- * all other kinds are explicitly public and pass through unchanged for every viewer.
- * Pre-reveal active-story values reach the caster only; `votes_revealed` (the controlled
- * inversion at reveal time) reaches everyone — that's intentional, not a leak.
+ * most other kinds are explicitly public and pass through unchanged. Pre-reveal
+ * active-story values reach the caster only; `votes_revealed` (the controlled
+ * inversion at reveal time) reaches everyone for its votes/stats — but its
+ * optional `ai` field is HOST-ONLY at reveal (AA-1 edge #2, S8.ii.c). The
+ * projector strips `ai` for non-hosts via `projectAiForRecipient`, so a voter's
+ * reveal of an AI-requested-but-unshared story is byte-identical to a reveal of
+ * a story that never had AI.
+ *
+ * `hostVoterId` is the live `room.host_voter_id` at broadcast time (resolved
+ * fresh per call by the caller — survives transfer). A null `hostVoterId`
+ * (transient host-vacant) means no recipient is host, so any `ai` on a
+ * `votes_revealed` is stripped for everyone.
  */
 export function projectChangesFor(
   viewerVoterId: string | null,
+  hostVoterId: string | null,
   changes: DeltaChange[],
 ): DeltaChange[] {
-  return changes.filter((change): boolean => {
+  const isHost = viewerVoterId !== null && hostVoterId !== null && viewerVoterId === hostVoterId;
+  return changes.flatMap((change): DeltaChange[] => {
     switch (change.kind) {
       // Caster-only — drop for non-casters. The caster is identified by the paired
       // `voter_voted` on the same storyId in the same batch.
@@ -49,8 +62,22 @@ export function projectChangesFor(
           (c): c is Extract<DeltaChange, { kind: 'voter_voted' }> =>
             c.kind === 'voter_voted' && c.storyId === change.storyId,
         );
-        if (!paired) return false;
-        return paired.voterId === viewerVoterId;
+        if (!paired) return [];
+        return paired.voterId === viewerVoterId ? [change] : [];
+      }
+      // Reveal: votes + stats are public; the optional `ai` is host-only at
+      // reveal time (`shared` is always false here — SHARE_AI is the only
+      // path that crosses ai to a non-host, and that goes via AI_SHARED, not
+      // via this change). When projector returns undefined we DELETE the key
+      // entirely; not null, not present-empty.
+      case 'votes_revealed': {
+        if (change.ai === undefined) return [change];
+        const projected = projectAiForRecipient('revealed', change.ai, isHost);
+        if (projected === undefined) {
+          const { ai: _omit, ...rest } = change;
+          return [rest];
+        }
+        return projected === change.ai ? [change] : [{ ...change, ai: projected }];
       }
       // Public — pass through for every viewer.
       case 'voter_joined':
@@ -60,16 +87,15 @@ export function projectChangesFor(
       case 'story_added':
       case 'story_edited':
       case 'voting_opened':
-      case 'votes_revealed':
       case 'story_committed':
       case 'story_skipped':
       case 'story_split':
-        return true;
+        return [change];
       default: {
         // Unknown future kind — drop defensively so accidental new payloads can't auto-leak.
         const _exhaustive: never = change;
         void _exhaustive;
-        return false;
+        return [];
       }
     }
   });
@@ -117,6 +143,7 @@ export function broadcastEnvelope<T>(
 export function broadcast(
   ctx: DurableObjectState,
   changes: DeltaChange[],
+  hostVoterId: string | null,
   opts?: { excludeWs?: WebSocket },
 ): void {
   const sockets = ctx.getWebSockets();
@@ -124,7 +151,7 @@ export function broadcast(
     if (opts?.excludeWs === sock) continue;
     const att = getAttachment(sock);
     if (!att) continue;
-    const projected = projectChangesFor(att.voterId, changes);
+    const projected = projectChangesFor(att.voterId, hostVoterId, changes);
     if (projected.length === 0) continue;
     const env: Envelope<DeltaPayload> = {
       v: PROTOCOL_VERSION,

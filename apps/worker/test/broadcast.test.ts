@@ -40,9 +40,9 @@ describe('projectChangesFor (anti-anchoring)', () => {
       { kind: 'vote_value', storyId: 'st-1', points: '5', confidence: 3 },
     ];
     // Caster (a) sees both:
-    expect(projectChangesFor('a', changes)).toEqual(changes);
+    expect(projectChangesFor('a', null, changes)).toEqual(changes);
     // Other viewer (b) sees presence only:
-    expect(projectChangesFor('b', changes)).toEqual([
+    expect(projectChangesFor('b', null, changes)).toEqual([
       { kind: 'voter_voted', storyId: 'st-1', voterId: 'a' },
     ]);
   });
@@ -51,7 +51,7 @@ describe('projectChangesFor (anti-anchoring)', () => {
     const changes: DeltaChange[] = [
       { kind: 'vote_value', storyId: 'st-9', points: '8', confidence: 4 },
     ];
-    expect(projectChangesFor('a', changes)).toEqual([]);
+    expect(projectChangesFor('a', null, changes)).toEqual([]);
   });
 
   it('passes through non-vote changes unchanged', () => {
@@ -59,7 +59,7 @@ describe('projectChangesFor (anti-anchoring)', () => {
       { kind: 'voter_joined', voter: VOTER_A },
       { kind: 'voter_left', voterId: 'x' },
     ];
-    expect(projectChangesFor('whoever', changes)).toEqual(changes);
+    expect(projectChangesFor('whoever', null, changes)).toEqual(changes);
   });
 });
 
@@ -69,9 +69,11 @@ describe('broadcast — fan-out via ctx.getWebSockets()', () => {
     const joined2 = fakeWs({ voterId: 'b', role: 'voter' });
     const unattached = fakeWs(undefined);
 
-    broadcast(fakeCtx([joined1, joined2, unattached]), [
-      { kind: 'voter_joined', voter: VOTER_A },
-    ]);
+    broadcast(
+      fakeCtx([joined1, joined2, unattached]),
+      [{ kind: 'voter_joined', voter: VOTER_A }],
+      null,
+    );
 
     expect(joined1.sent).toHaveLength(1);
     expect(joined2.sent).toHaveLength(1);
@@ -95,6 +97,7 @@ describe('broadcast — fan-out via ctx.getWebSockets()', () => {
         { kind: 'voter_voted', storyId: 'st-1', voterId: 'a' },
         { kind: 'vote_value', storyId: 'st-1', points: '5', confidence: 3 },
       ],
+      null,
       { excludeWs: caster.ws },
     );
     // caster excluded:

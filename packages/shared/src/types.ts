@@ -178,13 +178,13 @@ export const PROTOCOL_VERSION = 1;
 export type ClientMessageType =
   | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
   | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
-  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
+  | 'REQUEST_AI' | 'SHARE_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
   | 'CLAIM_HOST' | 'TRANSFER_HOST';
 
 export type ServerMessageType =
   | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
   | 'HOST_VACANT' | 'HOST_RECLAIMED' | 'STORY_AI_READY' | 'STORY_AI_FAILED'
-  | 'PONG';
+  | 'AI_SHARED' | 'PONG';
 
 export type Envelope<T = unknown> = {
   v: number;
@@ -220,6 +220,20 @@ export type StoryAiReadyPayload = { storyId: string };
  *  Voting is never blocked — failure touches only the ai row + this host
  *  message. AA-1: never delivered to non-hosts. */
 export type StoryAiFailedPayload = { storyId: string; errorMessage: string };
+
+/** S8.ii.c — SHARE_AI: host opts to surface the (ready) suggestion to the
+ *  room after reveal. The only path that crosses `ai` to a non-host. SI-02
+ *  host-only; story must be revealed/committed; suggestion must be ready. */
+export type ShareAiPayload = { storyId: string };
+
+/** S8.ii.c — AI_SHARED: server broadcast (to ALL connected sockets) after
+ *  a successful SHARE_AI. Carries the ready suggestion so clients can render
+ *  it immediately — snapshots/reveals from this point on also project it
+ *  via projectAiForRecipient (the row's `shared` flag is the persistent state). */
+export type AiSharedPayload = {
+  storyId: string;
+  ai: Extract<AISuggestion, { state: 'ready' }>;
+};
 
 /** S7.iii: a host-change occurred. `via` lets the UI tell the three stories apart. */
 export type HostReclaimedPayload = {
@@ -277,7 +291,20 @@ export type DeltaChange =
   | { kind: 'story_added'; story: Story }
   | { kind: 'story_edited'; story: Story }
   | { kind: 'voting_opened'; storyId: string }
-  | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
+  | {
+      kind: 'votes_revealed';
+      storyId: string;
+      votes: Vote[];
+      stats: RevealStats;
+      /**
+       * AA-1 (S8.ii.c, edge #2): host-only at reveal time. The dispatcher
+       * attaches the source suggestion when one exists; the per-recipient
+       * `projectChangesFor` strips it for non-hosts via `projectAiForRecipient`,
+       * so a voter's reveal is byte-identical to a reveal of a no-AI story.
+       * Absence is the AA-1 signal — present-as-null would still leak.
+       */
+      ai?: AISuggestion;
+    }
   | { kind: 'story_committed'; storyId: string; finalEstimate: string }
   | { kind: 'story_skipped'; storyId: string }
   | { kind: 'story_split'; parentId: string; children: Story[] };

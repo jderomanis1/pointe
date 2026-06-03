@@ -122,6 +122,36 @@ export function mapAiSuggestionRow(row: AiSuggestionRow): AISuggestion {
   return { state: 'pending' };
 }
 
+/**
+ * S8.ii.c — flip the `shared` flag on a ready suggestion. Idempotent by
+ * construction: `shared_at` is set only on the first flip (COALESCE preserves
+ * the original timestamp), so repeat calls don't double-write. Returns true
+ * iff a state transition happened (0 → 1); callers can use this to suppress a
+ * duplicate AI_SHARED broadcast or — by convention here — fire it anyway to
+ * cover a missed delivery.
+ */
+export function markAiSuggestionShared(
+  sql: SqlStorage,
+  params: { storyId: string; now: number },
+): { transitioned: boolean } {
+  const before = sql
+    .exec<{ shared: number; state: string }>(
+      'SELECT shared, state FROM ai_suggestion WHERE story_id = ?',
+      params.storyId,
+    )
+    .toArray()[0];
+  if (!before) return { transitioned: false };
+  if (before.state !== 'ready') return { transitioned: false };
+  if (before.shared === 1) return { transitioned: false };
+  sql.exec(
+    `UPDATE ai_suggestion
+       SET shared = 1, shared_at = COALESCE(shared_at, ?)
+     WHERE story_id = ? AND state = 'ready'`,
+    params.now, params.storyId,
+  );
+  return { transitioned: true };
+}
+
 /** Read the row shape directly — used by the serializer where the typed
  *  AISuggestion isn't needed (we only need the row's shared flag + state). */
 export function getAiSuggestionRow(sql: SqlStorage, storyId: string): AiSuggestionRow | null {
@@ -257,8 +287,17 @@ export function deriveAiCacheKey(storyText: string, deckValues: string[]): strin
  */
 export const AI_MODEL = 'claude-sonnet-4-6';
 
-/** Wall-clock cap for the Anthropic call. Graceful failure on timeout. */
-export const AI_CALL_TIMEOUT_MS = 10_000;
+/**
+ * Wall-clock cap for the Anthropic call. Graceful failure on timeout.
+ *
+ * Bumped from 10s to 20s in S8.ii.c after the S8.ii.b live smoke caught
+ * Sonnet's first-token tail latency brushing the old budget (Story A timed
+ * out once on a real call; the immediate retry succeeded). Voting is never
+ * blocked by the cap (the async path runs on `waitUntil`-style discipline
+ * outside the message handler), so a larger ceiling is free — no auto-retry
+ * here: the `failed`-state-allows-retry path covers genuine failures.
+ */
+export const AI_CALL_TIMEOUT_MS = 20_000;
 
 /**
  * System prompt — the CERU contract + the SI-05 safety clause. The safety

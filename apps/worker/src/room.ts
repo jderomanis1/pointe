@@ -129,7 +129,7 @@ export class Room {
       this.sql,
       ws,
       message,
-      (changes, opts) => broadcast(this.ctx, changes, opts),
+      (changes, opts) => broadcast(this.ctx, changes, getHostVoterId(this.sql), opts),
       // S7.ii fire-and-forget: deletes the row synchronously; alarm re-schedule
       // is async (acceptable — stale alarm fires into an empty table → no-op).
       () => { void cancelTasksByType(this.ctx.storage, 'host_vacant'); },
@@ -397,7 +397,12 @@ export class Room {
         connectionState: 'left',
         now: Date.now(),
       });
-      broadcast(this.ctx, [{ kind: 'voter_left', voterId: att.voterId }], { excludeWs: ws });
+      broadcast(
+        this.ctx,
+        [{ kind: 'voter_left', voterId: att.voterId }],
+        getHostVoterId(this.sql),
+        { excludeWs: ws },
+      );
     } catch {
       /* don't throw out of the hibernation handler */
     }

@@ -1,9 +1,10 @@
 import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
-  AddStoryPayload, CommitStoryPayload, DeltaChange, EditStoryPayload, Envelope, ErrorPayload,
-  HostReclaimedPayload, JoinRoomPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot,
-  ServerMessageType, SkipStoryPayload, SnapshotStory, SplitStoryPayload, TransferHostPayload,
-  VoteCastPayload, VoterRole,
+  AddStoryPayload, AiSharedPayload, AISuggestion, CommitStoryPayload, DeltaChange,
+  EditStoryPayload, Envelope, ErrorPayload, HostReclaimedPayload, JoinRoomPayload,
+  OpenVotingPayload, RevealVotesPayload, RoomSnapshot, ServerMessageType, ShareAiPayload,
+  SkipStoryPayload, SnapshotStory, SplitStoryPayload, TransferHostPayload, VoteCastPayload,
+  VoterRole,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
@@ -14,7 +15,7 @@ import {
 import { getAttachment } from './broadcast';
 import {
   checkAiRateLimit, deriveAiCacheKey, getAiCache, getAiSuggestion,
-  projectAiForRecipient, upsertAiSuggestion,
+  markAiSuggestionShared, projectAiForRecipient, upsertAiSuggestion,
 } from './ai';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
@@ -169,6 +170,8 @@ function route(ctx: HandlerCtx): Envelope[] {
       // caller (room.ts) does `for (env of envelopes) ws.send(...)` — so the
       // handler schedules the async work through the orchestrator and exits.
       return handleRequestAi(ctx);
+    case 'SHARE_AI':
+      return handleShareAi(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
@@ -336,8 +339,16 @@ function handleRevealVotes(ctx: HandlerCtx): Envelope[] {
       ? resolveDeck(roomRow.deck as Parameters<typeof resolveDeck>[0], roomRow.custom_deck ? JSON.parse(roomRow.custom_deck) : null)
       : [];
     const stats = computeRevealStats(deck, votes);
+    // AA-1 edge #2: attach the AI suggestion (any state) so the host's reveal
+    // carries it. `projectChangesFor` strips `ai` for non-hosts via
+    // `projectAiForRecipient` — voters get a reveal byte-identical to a
+    // no-AI reveal. If no suggestion exists, the field is absent entirely.
+    const suggestion = getAiSuggestion(ctx.sql, p.storyId);
+    const revealChange: Extract<DeltaChange, { kind: 'votes_revealed' }> = suggestion
+      ? { kind: 'votes_revealed', storyId: p.storyId, votes, stats, ai: suggestion }
+      : { kind: 'votes_revealed', storyId: p.storyId, votes, stats };
     ctx.markProcessed();
-    ctx.broadcast([{ kind: 'votes_revealed', storyId: p.storyId, votes, stats }]);
+    ctx.broadcast([revealChange]);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';
@@ -669,6 +680,89 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
 function isRequestAiPayload(p: unknown): p is { storyId: string } {
   return typeof p === 'object' && p !== null
     && typeof (p as { storyId: unknown }).storyId === 'string';
+}
+
+function isShareAiPayload(p: unknown): p is ShareAiPayload {
+  return typeof p === 'object' && p !== null
+    && typeof (p as { storyId: unknown }).storyId === 'string'
+    && (p as { storyId: string }).storyId.length > 0;
+}
+
+/**
+ * S8.ii.c — SHARE_AI: host opts to surface the (ready) suggestion to the room.
+ *
+ * The only sanctioned path that crosses `ai` to a non-host. Guards:
+ *   • SI-02 host-only.
+ *   • Story must be `revealed` or `committed` — you can't share before reveal
+ *     (AA-1 would be defeated; the row's projector also checks this).
+ *   • Suggestion must exist and be `ready` (pending / failed / absent are
+ *     not shareable by construction).
+ *
+ * On success: flip `ai_suggestion.shared = 1` (idempotent via
+ * `markAiSuggestionShared` — shared_at is set on first transition only) and
+ * broadcast `AI_SHARED { storyId, ai }` to every JOIN-bound socket. The
+ * suggestion in the broadcast carries `shared: true` so clients can render
+ * straight away — snapshots/reconnects stay consistent because the row's
+ * `shared` flag is the persistent state and `projectAiForRecipient` lets the
+ * suggestion through for non-hosts once it flips.
+ *
+ * Idempotency: a second SHARE_AI on an already-shared row does NOT flip
+ * anything but DOES re-broadcast — covers a missed delivery on the first try
+ * (cheap, host-deliberate, and consistent with the request being accepted).
+ */
+function handleShareAi(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isShareAiPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'SHARE_AI payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+
+  const story = ctx.sql
+    .exec<{ id: string; state: string }>(
+      `SELECT id, state FROM story WHERE id = ?`, p.storyId,
+    ).toArray()[0];
+  if (!story) {
+    return [makeError('STORY_NOT_FOUND', 'Story not found', false, ctx.envelope.id)];
+  }
+  if (story.state !== 'revealed' && story.state !== 'committed') {
+    return [makeError(
+      'AI_NOT_SHAREABLE',
+      `Cannot share AI before reveal (story is '${story.state}')`,
+      false, ctx.envelope.id,
+    )];
+  }
+
+  const suggestion = getAiSuggestion(ctx.sql, p.storyId);
+  if (!suggestion || suggestion.state !== 'ready') {
+    return [makeError(
+      'AI_NOT_SHAREABLE',
+      `No ready AI suggestion to share (state: ${suggestion?.state ?? 'none'})`,
+      false, ctx.envelope.id,
+    )];
+  }
+
+  markAiSuggestionShared(ctx.sql, { storyId: p.storyId, now: Date.now() });
+  ctx.markProcessed();
+
+  // The broadcast carries the ready suggestion with shared=true so receivers
+  // can render without a re-snapshot. Re-read after the flip so the payload's
+  // `shared` reflects truth (the flip on already-shared is a no-op; on a
+  // fresh share, it flips 0→1).
+  const post = getAiSuggestion(ctx.sql, p.storyId);
+  if (!post || post.state !== 'ready') {
+    // Defensive: the row was racing somehow. Fail loud — never leak a stale
+    // unshared suggestion through the broadcast.
+    return [makeError('AI_NOT_SHAREABLE', 'Suggestion state changed', false, ctx.envelope.id)];
+  }
+  const aiShared: AISuggestion = { ...post, shared: true };
+  const payload: AiSharedPayload = {
+    storyId: p.storyId,
+    ai: aiShared as Extract<AISuggestion, { state: 'ready' }>,
+  };
+  ctx.broadcastEnvelope('AI_SHARED', payload);
+  return [];
 }
 
 /** Build the snapshot with anti-anchoring + scope limit. */
