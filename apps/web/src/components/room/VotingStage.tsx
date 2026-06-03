@@ -10,6 +10,7 @@ import { CommitPanel } from './CommitPanel';
 import { LongText } from './LongText';
 import { SplitForm } from './SplitForm';
 import { useSend } from './RoomClientContext';
+import { HostAiSection } from './HostAiSection';
 
 /**
  * The active-story focus, branched by story.state:
@@ -127,6 +128,12 @@ export function VotingStage({ story }: { story: Story }) {
           {canVote ? <CastPanel story={story} /> : null}
         </div>
       )}
+
+      {/* S8.iii.c3 — host-only AI affordance + panel. Pre-reveal only:
+       *  decisions A/B (host's independent anchor-breaker, during voting).
+       *  Voters never render this; AA-1 is also data-enforced (their
+       *  `story.ai` is always undefined). */}
+      {isHost && story.state === 'active' ? <HostAiSection story={story} /> : null}
     </section>
   );
 }
