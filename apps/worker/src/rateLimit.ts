@@ -9,11 +9,13 @@ import type { KVNamespace } from '@cloudflare/workers-types';
  */
 
 export const HOUR_MS = 3_600_000;
+/** Window for the per-IP/room WS handshake limit (enforced in the DO, not KV). */
 export const MINUTE_MS = 60_000;
 
 // Spec-locked budgets.
 export const RL_CREATE_PER_HOUR = 20;
 export const RL_LOOKUP_PER_HOUR = 200;
+/** WS handshake budget per IP per ROOM per minute. Atomic counter in the room DO. */
 export const RL_WS_PER_MIN = 30;
 
 export function clientIp(request: Request): string {
