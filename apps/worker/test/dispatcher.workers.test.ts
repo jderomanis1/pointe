@@ -4,6 +4,7 @@ import type { DeltaChange, ErrorPayload, RoomSnapshot } from '@pointe/shared';
 import { handleMessage } from '../src/dispatcher';
 import {
   createRoom, addStory, openVoting, castVote, revealVotes, addVoter, getRoomState,
+  getHostVoterId,
 } from '../src/operations';
 import { withRoom } from './helpers/pool';
 
@@ -454,7 +455,7 @@ describe('dispatcher.handleMessage — VOTE_CAST (R3.ii, anti-anchoring split)',
       } as unknown as import('@cloudflare/workers-types').DurableObjectState;
 
       const realBroadcast: Parameters<typeof handleMessage>[3] = (changes, opts) =>
-        broadcast(ctx, changes, opts);
+        broadcast(ctx, changes, null, opts);
 
       const out = handleMessage(
         sql, sockA.ws,
@@ -660,7 +661,7 @@ describe('dispatcher.handleMessage — REVEAL_VOTES + COMMIT_STORY (R3.iii)', ()
         getWebSockets: () => [sockHost.ws, sockOther.ws],
       } as unknown as import('@cloudflare/workers-types').DurableObjectState;
       const realBroadcast: Parameters<typeof handleMessage>[3] = (changes, opts) =>
-        broadcast(ctx, changes, opts);
+        broadcast(ctx, changes, getHostVoterId(sql), opts);
 
       handleMessage(sql, sockHost.ws, envOf('REVEAL_VOTES', 'rv-pub', { storyId: 'st-1' }), realBroadcast);
 
@@ -675,7 +676,7 @@ describe('dispatcher.handleMessage — REVEAL_VOTES + COMMIT_STORY (R3.iii)', ()
         { kind: 'voter_voted' as const, storyId: 'st-x', voterId: 'someone' },
         { kind: 'vote_value' as const, storyId: 'st-x', points: '13', confidence: 5 },
       ];
-      expect(projectChangesFor('not-someone', pre).some((c) => c.kind === 'vote_value')).toBe(false);
+      expect(projectChangesFor('not-someone', null, pre).some((c) => c.kind === 'vote_value')).toBe(false);
     });
   });
 

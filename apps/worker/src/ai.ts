@@ -257,8 +257,17 @@ export function deriveAiCacheKey(storyText: string, deckValues: string[]): strin
  */
 export const AI_MODEL = 'claude-sonnet-4-6';
 
-/** Wall-clock cap for the Anthropic call. Graceful failure on timeout. */
-export const AI_CALL_TIMEOUT_MS = 10_000;
+/**
+ * Wall-clock cap for the Anthropic call. Graceful failure on timeout.
+ *
+ * Bumped from 10s to 20s in S8.ii.c after the S8.ii.b live smoke caught
+ * Sonnet's first-token tail latency brushing the old budget (Story A timed
+ * out once on a real call; the immediate retry succeeded). Voting is never
+ * blocked by the cap (the async path runs on `waitUntil`-style discipline
+ * outside the message handler), so a larger ceiling is free — no auto-retry
+ * here: the `failed`-state-allows-retry path covers genuine failures.
+ */
+export const AI_CALL_TIMEOUT_MS = 20_000;
 
 /**
  * System prompt — the CERU contract + the SI-05 safety clause. The safety

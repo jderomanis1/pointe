@@ -167,7 +167,7 @@ describe('graceful failure (Fix 06) — every path returns { ok: false } and nev
     expect(r).toEqual({ ok: false, errorMessage: 'NETWORK_ERROR' });
   });
 
-  it('timeout: a hanging fetch is aborted at ~10s', async () => {
+  it('timeout: a hanging fetch is aborted at AI_CALL_TIMEOUT_MS', async () => {
     vi.useFakeTimers();
     // Implement a "hanging" fetch that rejects with AbortError when the
     // controller's signal aborts (faithful to fetch's runtime behavior).

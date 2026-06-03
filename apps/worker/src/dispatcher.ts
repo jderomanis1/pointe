@@ -336,8 +336,16 @@ function handleRevealVotes(ctx: HandlerCtx): Envelope[] {
       ? resolveDeck(roomRow.deck as Parameters<typeof resolveDeck>[0], roomRow.custom_deck ? JSON.parse(roomRow.custom_deck) : null)
       : [];
     const stats = computeRevealStats(deck, votes);
+    // AA-1 edge #2: attach the AI suggestion (any state) so the host's reveal
+    // carries it. `projectChangesFor` strips `ai` for non-hosts via
+    // `projectAiForRecipient` — voters get a reveal byte-identical to a
+    // no-AI reveal. If no suggestion exists, the field is absent entirely.
+    const suggestion = getAiSuggestion(ctx.sql, p.storyId);
+    const revealChange: Extract<DeltaChange, { kind: 'votes_revealed' }> = suggestion
+      ? { kind: 'votes_revealed', storyId: p.storyId, votes, stats, ai: suggestion }
+      : { kind: 'votes_revealed', storyId: p.storyId, votes, stats };
     ctx.markProcessed();
-    ctx.broadcast([{ kind: 'votes_revealed', storyId: p.storyId, votes, stats }]);
+    ctx.broadcast([revealChange]);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';

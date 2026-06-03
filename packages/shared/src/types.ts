@@ -178,13 +178,13 @@ export const PROTOCOL_VERSION = 1;
 export type ClientMessageType =
   | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
   | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
-  | 'REQUEST_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
+  | 'REQUEST_AI' | 'SHARE_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
   | 'CLAIM_HOST' | 'TRANSFER_HOST';
 
 export type ServerMessageType =
   | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
   | 'HOST_VACANT' | 'HOST_RECLAIMED' | 'STORY_AI_READY' | 'STORY_AI_FAILED'
-  | 'PONG';
+  | 'AI_SHARED' | 'PONG';
 
 export type Envelope<T = unknown> = {
   v: number;
@@ -277,7 +277,20 @@ export type DeltaChange =
   | { kind: 'story_added'; story: Story }
   | { kind: 'story_edited'; story: Story }
   | { kind: 'voting_opened'; storyId: string }
-  | { kind: 'votes_revealed'; storyId: string; votes: Vote[]; stats: RevealStats }
+  | {
+      kind: 'votes_revealed';
+      storyId: string;
+      votes: Vote[];
+      stats: RevealStats;
+      /**
+       * AA-1 (S8.ii.c, edge #2): host-only at reveal time. The dispatcher
+       * attaches the source suggestion when one exists; the per-recipient
+       * `projectChangesFor` strips it for non-hosts via `projectAiForRecipient`,
+       * so a voter's reveal is byte-identical to a reveal of a no-AI story.
+       * Absence is the AA-1 signal — present-as-null would still leak.
+       */
+      ai?: AISuggestion;
+    }
   | { kind: 'story_committed'; storyId: string; finalEstimate: string }
   | { kind: 'story_skipped'; storyId: string }
   | { kind: 'story_split'; parentId: string; children: Story[] };
