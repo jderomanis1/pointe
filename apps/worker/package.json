@@ -13,9 +13,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.12",
     "@cloudflare/workers-types": "^4.20260603.1",
-    "@types/better-sqlite3": "^7.6.13",
     "@vitest/coverage-v8": "^4.1.7",
-    "better-sqlite3": "^12.10.0",
     "vitest": "^4.1.7",
     "wrangler": "^4.95.0"
   },
