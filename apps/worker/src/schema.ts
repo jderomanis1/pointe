@@ -66,8 +66,13 @@ export function initSchema(sql: SqlStorage): void {
     payload       TEXT,
     error_message TEXT,
     requested_at  INTEGER NOT NULL,
-    completed_at  INTEGER
+    completed_at  INTEGER,
+    shared        INTEGER NOT NULL DEFAULT 0,
+    shared_at     INTEGER
   )`);
+  // S8.i.a — idempotent migration for DOs created before this deploy. Rooms
+  // are ephemeral but may be mid-TTL; PRAGMA table_info self-guards the ALTER.
+  migrateAiSuggestionShared(sql);
 
   sql.exec(`CREATE TABLE IF NOT EXISTS audit_event (
     id             TEXT PRIMARY KEY,
@@ -111,4 +116,31 @@ export function initSchema(sql: SqlStorage): void {
     count        INTEGER NOT NULL,
     PRIMARY KEY (ip, window_start)
   )`);
+
+  // S8.i.a AI rate counter (per-room, 3/hr). Same DO-atomic shape as
+  // ws_handshake_rate but the room IS the DO so no ip column; the hourly
+  // windowStart is the bucket key on its own.
+  sql.exec(`CREATE TABLE IF NOT EXISTS ai_rate_limit (
+    window_start INTEGER PRIMARY KEY,
+    count        INTEGER NOT NULL
+  )`);
+}
+
+/**
+ * S8.i.a idempotent migration: add `shared` + `shared_at` to existing
+ * `ai_suggestion` tables. Fresh DOs get them from CREATE TABLE; older DOs
+ * gain them here. The PRAGMA check makes this a no-op on already-migrated
+ * tables, so calling on every init is safe.
+ */
+function migrateAiSuggestionShared(sql: SqlStorage): void {
+  const cols = sql
+    .exec<{ name: string }>(`PRAGMA table_info(ai_suggestion)`)
+    .toArray()
+    .map((r) => r.name);
+  if (!cols.includes('shared')) {
+    sql.exec(`ALTER TABLE ai_suggestion ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.includes('shared_at')) {
+    sql.exec(`ALTER TABLE ai_suggestion ADD COLUMN shared_at INTEGER`);
+  }
 }

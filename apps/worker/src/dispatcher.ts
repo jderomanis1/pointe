@@ -12,6 +12,7 @@ import {
   getVoterById, setRoomHost, skipStory, splitStory,
 } from './operations';
 import { getAttachment } from './broadcast';
+import { getAiSuggestion, projectAiForRecipient } from './ai';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
 export type BroadcastFn = (
@@ -511,6 +512,10 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
   const state = getRoomState(sql);
   const me = state.voters.find((v) => v.id === voterId);
   if (!me) throw new Error('VOTER_NOT_FOUND');
+  // AA-1: the host is the only recipient entitled to AI before SHARE_AI.
+  // Compare directly to room.hostVoterId (truthy source after claim/transfer);
+  // voter.role can lag in edge cases the snapshot serves through.
+  const isHost = state.room.hostVoterId !== null && voterId === state.room.hostVoterId;
 
   const active = state.stories.find((s) => s.state === 'active');
   const revealed = state.stories
@@ -521,10 +526,14 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
   const snapStories: SnapshotStory[] = [];
   if (active) {
     // Anti-anchoring: active story carries NO votes.
-    snapStories.push({ ...active, votes: [] });
+    snapStories.push(withAiProjection(sql, { ...active, votes: [] }, isHost));
   }
   for (const story of revealed) {
-    snapStories.push({ ...story, votes: state.votes.filter((v) => v.storyId === story.id) });
+    snapStories.push(withAiProjection(
+      sql,
+      { ...story, votes: state.votes.filter((v) => v.storyId === story.id) },
+      isHost,
+    ));
   }
 
   return {
@@ -533,6 +542,23 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
     stories: snapStories,
     you: { voterId, role: me.role as VoterRole },
   };
+}
+
+/**
+ * AA-1: attach the projected AI suggestion to a story for this recipient,
+ * or leave the `ai` key absent. When the projector returns undefined the key
+ * is NOT set — a non-host story with AI requested is byte-identical to one
+ * where AI was never requested (snapshot capstone test).
+ */
+function withAiProjection(
+  sql: SqlStorage,
+  story: SnapshotStory,
+  isHost: boolean,
+): SnapshotStory {
+  const suggestion = getAiSuggestion(sql, story.id);
+  const projected = projectAiForRecipient(story.state, suggestion, isHost);
+  if (projected === undefined) return story;
+  return { ...story, ai: projected };
 }
 
 // ---- helpers ----
