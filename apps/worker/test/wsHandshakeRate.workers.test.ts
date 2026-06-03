@@ -108,4 +108,49 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
     expect(okB.status).toBe(101);
     expect(okB.headers.get('X-RL-Count')).toBe('1');
   });
+
+  it('window rollover: crossing a minute boundary resets the counter for the new bucket', async () => {
+    // The implementation deletes stale rows (window_start < current) then
+    // upserts at the current windowStart. We simulate the minute crossing
+    // by force-aging the row to the previous bucket via direct SQL — the
+    // next handshake lands in the new minute, so the count restarts at 1.
+    const id = ROOM.idFromName('rate-rollover');
+    const stub = ROOM.get(id);
+    await ensureRoom(stub);
+
+    // Build up some count in the current bucket.
+    for (let i = 0; i < 5; i++) {
+      const res = await stub.fetch(wsReq('3.3.3.3'));
+      await res.arrayBuffer();
+    }
+
+    // Age the row's window_start back one minute (still > 0, so the impl's
+    // `window_start < currentWindow` DELETE catches it on the next call).
+    await runInDurableObject(stub, async (_inst, state) => {
+      state.storage.sql.exec(
+        `UPDATE ws_handshake_rate SET window_start = window_start - 60000 WHERE ip = '3.3.3.3'`,
+      );
+      // Sanity: the aged row is the only one.
+      const rows = state.storage.sql
+        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '3.3.3.3'`)
+        .toArray();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].count).toBe(5);
+    });
+
+    // Next handshake: stale row gets DELETEd, fresh INSERT at current window.
+    const res = await stub.fetch(wsReq('3.3.3.3'));
+    await res.arrayBuffer();
+    expect(res.status).toBe(101);
+    expect(res.headers.get('X-RL-Count')).toBe('1');
+
+    // And the aged row is gone; only the new-bucket row remains.
+    await runInDurableObject(stub, async (_inst, state) => {
+      const rows = state.storage.sql
+        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '3.3.3.3'`)
+        .toArray();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].count).toBe(1);
+    });
+  });
 });
