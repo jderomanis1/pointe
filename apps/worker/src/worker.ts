@@ -1,4 +1,4 @@
-import type { KVNamespace } from '@cloudflare/workers-types';
+import type { KVNamespace, RateLimit } from '@cloudflare/workers-types';
 import type {
   ApiError,
   CreateRoomRequest,
@@ -10,12 +10,17 @@ import type {
 import { Room } from './room';
 import type { RoomReadState } from './operations';
 import { lookupSlug, reserveSlug } from './slug';
+import {
+  checkHourlyIpLimit, clientIp, RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR,
+} from './rateLimit';
 
 export { Room };
 
 export interface Env {
   ROOM: DurableObjectNamespace;
   POINTE_SLUGS: KVNamespace;
+  /** SI-06 WS handshake rate limiter (30/min/IP). See /spec/security.md §1. */
+  WS_HANDSHAKE_LIMITER: RateLimit;
 }
 
 const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
@@ -32,6 +37,18 @@ function errorResponse(code: string, message: string, status: number): Response 
   return json(body, status);
 }
 
+/** SI-06: 429 with the standard ApiError envelope + Retry-After. */
+function rateLimited(message: string, retryAfterSeconds: number): Response {
+  const body: ApiError = { code: 'RATE_LIMITED', message };
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: {
+      'Content-Type': 'application/json',
+      'Retry-After': String(retryAfterSeconds),
+    },
+  });
+}
+
 /**
  * Build the SI-03 session cookie. Scoped tight: SameSite=Strict, room-only Path, 24h TTL.
  * Non-host voters get their cookie on JOIN over the realtime upgrade response in R2 —
@@ -45,6 +62,10 @@ export function buildSessionCookie(hostVoterId: string, slug: string): string {
 }
 
 async function createRoomEndpoint(request: Request, env: Env): Promise<Response> {
+  // SI-06 per-hour ceiling — fixed-window KV counter. See /spec/security.md §1.
+  if (!(await checkHourlyIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), RL_CREATE_PER_HOUR))) {
+    return rateLimited('Too many rooms created from this IP. Try again later.', 3600);
+  }
   let parsed: unknown;
   try {
     parsed = await request.json();
@@ -109,6 +130,14 @@ async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response |
   if (request.headers.get('Upgrade') !== 'websocket') {
     return new Response('Expected websocket', { status: 426 });
   }
+  // SI-06: WS handshake RATE limit (30/min/IP). Spec originally said "10 concurrent
+  // WS/IP" — a concurrency cap; v1 implements a handshake rate instead because true
+  // concurrency capping needs cross-DO per-IP socket tracking (leak-prone). The
+  // handshake rate catches socket spam without that fragility. See /spec/security.md §1.
+  const { success } = await env.WS_HANDSHAKE_LIMITER.limit({ key: clientIp(request) });
+  if (!success) {
+    return rateLimited('WebSocket handshake rate exceeded for this IP.', 60);
+  }
   const slug = match[1];
   const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
   if (roomId === null) {
@@ -123,6 +152,11 @@ async function getRoomEndpoint(request: Request, env: Env): Promise<Response | n
   const { pathname } = new URL(request.url);
   const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)$/);
   if (!match) return null;
+  // SI-06 per-hour ceiling — fixed-window KV counter. /ws is matched earlier so
+  // the upgrade path is NOT counted as a lookup. See /spec/security.md §1.
+  if (!(await checkHourlyIpLimit(env.POINTE_SLUGS, 'lookup', clientIp(request), RL_LOOKUP_PER_HOUR))) {
+    return rateLimited('Too many lookups from this IP. Try again later.', 3600);
+  }
   const slug = match[1];
 
   const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
