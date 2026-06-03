@@ -90,6 +90,24 @@ describe('SI-06 — DO atomic per-IP/room WS handshake rate', () => {
     expect((await b.room.fetch(wsRequest(IP))).status).not.toBe(429);
   });
 
+  it('FIRST call in a fresh window returns count 1 and is allowed (zero-row throw avoided by INSERT…RETURNING)', async () => {
+    // The bug the prod re-probe surfaced and this commit fixes: the prior
+    // SELECT-then-INSERT pattern read with .one() which throws on zero rows
+    // in real CF DO SQLite. The mock now mirrors that throw (see mockDoState),
+    // so if this code regresses to the SELECT-first pattern, this test catches
+    // it. Today: INSERT…RETURNING always yields exactly one row → .one()
+    // always safe → first call in a window proceeds.
+    const { state, room } = makeRoom();
+    const res = await room.fetch(wsRequest(IP));
+    expect(res.status).not.toBe(429);
+    const row = state.storage.sql
+      .exec<{ count: number }>(
+        `SELECT count FROM ws_handshake_rate WHERE ip = '7.7.7.7'`,
+      )
+      .toArray()[0];
+    expect(row.count).toBe(1);
+  });
+
   it('self-cleans stale rows on each call (no unbounded table growth)', async () => {
     vi.useFakeTimers();
     try {
