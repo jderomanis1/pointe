@@ -8,6 +8,7 @@ import {
 } from './operations';
 import { handleMessage } from './dispatcher';
 import { broadcast, broadcastEnvelope, getAttachment } from './broadcast';
+import { RL_WS_PER_MIN } from './rateLimit';
 import {
   cancelTasksByType, runDueTasks, scheduleTask, type ScheduledTask,
 } from './scheduler';
@@ -84,6 +85,16 @@ export class Room {
         if (request.headers.get('Upgrade') !== 'websocket') {
           return new Response('Expected websocket', { status: 426 });
         }
+        // SI-06: per-IP/min WS handshake rate. Atomic in the DO (KV is
+        // structurally unfit for a sub-minute window — read cache ≥ window,
+        // 1 write/sec/key burst cap). Per-IP/per-room scope maps to the real
+        // threat (one IP hammering one room); multi-room spam is bounded by
+        // the hourly create + lookup KV limits at the Worker.
+        // The Worker is the trust boundary for IP — it SETs X-Client-IP from
+        // CF-Connecting-IP. A client-supplied X-Client-IP cannot reach this
+        // handler because the Worker overrides it.
+        const limited = this.checkWsHandshakeRate(request);
+        if (limited) return limited;
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
         this.ctx.acceptWebSocket(server); // hibernation accept — NOT server.accept()
@@ -222,6 +233,47 @@ export class Room {
     } catch {
       /* never throw from hibernation handlers */
     }
+  }
+
+  /**
+   * SI-06: atomic per-IP, per-room WS handshake rate (30/min). Read-check-
+   * increment runs synchronously in the DO's single-threaded execution loop —
+   * truly atomic, no cache, no race. Returns a 429 Response if over budget,
+   * else null.
+   *
+   * Self-cleans stale rows (any window_start strictly older than the current
+   * minute) on every call. A single inbound IP keeps at most one row at a
+   * time; the table is bounded by distinct IPs hitting this room in the last
+   * minute.
+   */
+  private checkWsHandshakeRate(request: Request): Response | null {
+    const ip = request.headers.get('X-Client-IP') ?? 'unknown';
+    const now = Date.now();
+    const windowStart = Math.floor(now / 60_000) * 60_000;
+    this.sql.exec('DELETE FROM ws_handshake_rate WHERE window_start < ?', windowStart);
+    const row = this.sql
+      .exec<{ count: number }>(
+        'SELECT count FROM ws_handshake_rate WHERE ip = ? AND window_start = ?',
+        ip, windowStart,
+      )
+      .toArray()[0];
+    const current = row?.count ?? 0;
+    if (current >= RL_WS_PER_MIN) {
+      const body = {
+        code: 'RATE_LIMITED',
+        message: 'WebSocket handshake rate exceeded for this IP in this room.',
+      };
+      return new Response(JSON.stringify(body), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+      });
+    }
+    this.sql.exec(
+      `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, 1)
+       ON CONFLICT(ip, window_start) DO UPDATE SET count = count + 1`,
+      ip, windowStart,
+    );
+    return null;
   }
 
   /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */

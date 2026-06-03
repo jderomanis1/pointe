@@ -4,31 +4,39 @@
 
 ## 1. Rate limiting (SI-06)
 
-Three external surfaces, keyed on `CF-Connecting-IP`. **One uniform mechanism: KV fixed-window counter** under the `rl:` prefix of `POINTE_SLUGS`.
+Three external surfaces, keyed on `CF-Connecting-IP`. **Two mechanisms, matched to window length** — KV for the long, low-write hourly limits; a Durable Object atomic counter for the short, bursty WS handshake.
 
-| Surface | Limit | Window | KV key shape |
-|---|---|---|---|
-| WS handshake (`GET /api/rooms/:slug/ws`) | 30 | 1 minute | `rl:ws:<ip>:<floor(now/60s)>` |
-| Room create (`POST /api/rooms`) | 20 | 1 hour | `rl:create:<ip>:<floor(now/3600s)>` |
-| Slug lookup (`GET /api/rooms/:slug`) | 200 | 1 hour | `rl:lookup:<ip>:<floor(now/3600s)>` |
+| Surface | Limit | Scope | Window | Mechanism |
+|---|---|---|---|---|
+| Room create (`POST /api/rooms`) | 20 | per-IP | 1 hour | KV fixed-window (`rl:create:<ip>:<floor(now/3600s)>`) |
+| Slug lookup (`GET /api/rooms/:slug`) | 200 | per-IP | 1 hour | KV fixed-window (`rl:lookup:<ip>:<floor(now/3600s)>`) |
+| WS handshake (`GET /api/rooms/:slug/ws`) | 30 | per-IP, **per-room** | 1 minute | DO atomic counter (`ws_handshake_rate` SQLite table) |
 
-TTL is `2 × window` (covers slop for in-flight requests crossing the boundary), clamped to KV's 60s minimum.
+KV TTL = `2 × window` (covers in-flight slop at bucket boundaries), clamped to KV's 60s minimum.
 
-### Why one mechanism (and not the Workers `ratelimit` binding)
+### Why two mechanisms — KV for hours, DO for the minute
 
-The binding was considered for the per-minute WS handshake and rejected. Its counters are per-edge-location and async-updated — designed for cheap throttling at scale, not for deterministic enforcement at small scale. Prod probing after the first deploy showed it allowed 35 sequential handshakes through without a single 429; consistent with "working but loose", and disqualifying for a verifiable security control. Switching all three surfaces to the same KV counter makes the mechanism uniform, unit-testable end-to-end, and prod-verifiable with the same sequential probe at every surface.
+KV serves the long, low-write windows well. It is **structurally wrong for a sub-minute window**: KV reads are cached per edge location for at least 30 seconds (default 60 s, no `cacheTtl: 0`), and KV's documented write rate is 1/second per key under sustained load. A 60-second budget that depends on observing in-window increments cannot survive a read cache equal to or longer than the window — the read keeps serving the value from the start of the minute, increments never become visible, and the limit never trips. Cloudflare's documented answer for strong-consistency counters is a Durable Object. The WS upgrade is already DO-routed (the room DO is the upgrade target), so the counter lives inside the request path it gates — atomic, no cache, no new hop, no new DO class. A new SQLite table `ws_handshake_rate (ip, window_start, count)` self-cleans stale rows on every check.
 
-Documented to keep the binding from being re-introduced as an "optimization" later. v1.5 may revisit when the scale + observability story changes.
+The Workers `ratelimit` binding was considered first and rejected. Its counters are per-edge-location and async-updated; prod probing showed it allowed 35 sequential handshakes through without a 429. Designed for cheap throttling at large scale, not for the small-scale deterministic enforcement we need at v1. Documented to keep it from being re-introduced as an "optimization."
 
-### KV-non-atomic caveat (applies uniformly)
+### Per-IP, per-room WS scope — deliberate
 
-The KV counter is `get → check → put` and not atomic; a racing burst can slip 2–3 past the cap. That's fine: this is an abuse ceiling, not exact accounting. A DO-backed counter would buy precision we don't need at the cost of a per-request hop. Fixed window (not sliding) accepts a ~2× boundary burst — fine for a ceiling. Counters reuse the `POINTE_SLUGS` KV namespace under the `rl:` prefix; slug ops are point get/put with no list, so no collision. A dedicated namespace is a future cleanup if ever needed.
+The DO counter is scoped per-IP **within a room** rather than per-IP globally. This maps to the real threat: one IP hammering one room's sockets. Multi-room handshake spam stays bounded by the working KV hourly limits (20 creates + 200 lookups per IP per hour — you can't open a flood of WS without first paying those budgets to obtain valid slugs). A legitimate user on a flaky network only ever hits a limit scoped to their own room session, never lockout across rooms. A future cross-DO IP counter is v1.5 work; v1 doesn't need it.
+
+### IP forwarding is the trust boundary
+
+The Worker — the only external entry — reads `CF-Connecting-IP` and **sets** (overrides) `X-Client-IP` on the request it forwards to the DO. The DO is only reachable via the Worker, so an inbound client `X-Client-IP` header cannot reach the DO; the test suite asserts the spoof-attempt is overridden by the trusted value. This is SI-01 discipline applied to IP attribution.
+
+### KV non-atomic caveat (hourly surfaces only)
+
+The KV counter is `get → check → put` and not atomic; a racing burst can slip 2–3 past an hourly cap. Fine: these are abuse ceilings, not exact accounting. The DO counter for the WS handshake is fully atomic, so the same caveat does NOT apply there.
 
 ### The WS limit is a reinterpretation (unchanged)
 
-Spec originally said **"10 concurrent WS / IP"** — a *concurrency* cap. v1 implements a **handshake rate** (30/min/IP) instead. True concurrency capping needs per-IP open-socket counting *across* rooms, but each room is a separate Durable Object with no global view; a dedicated per-IP limiter DO would need decrement-on-close, and a missed close strands the count and locks a legitimate IP out. The handshake rate catches the real abuse pattern (socket spam) without that fragility. **True concurrency capping is v1.5 work.** This is a deliberate, documented v1 choice.
+Spec originally said **"10 concurrent WS / IP"** — a *concurrency* cap. v1 implements a **handshake rate** (30/min/IP, per-room) instead. True concurrency capping needs per-IP open-socket counting across rooms with decrement-on-close, and a missed close strands the count and locks a legitimate IP out. The handshake rate catches the real abuse pattern (socket spam) without that fragility. **True concurrency capping is v1.5 work.** Deliberate, documented v1 choice.
 
-The 30/min handshake value is a defensible start (~15× normal use); tunable post-launch from real patterns, not a v1 fine-tune. The per-hour numbers (20, 200) are locked from spec.
+The 30/min handshake value is a defensible start (~15× normal use); tunable post-launch. The per-hour numbers (20, 200) are locked from spec.
 
 ## 2. Security invariants
 

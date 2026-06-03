@@ -11,8 +11,8 @@ import { Room } from './room';
 import type { RoomReadState } from './operations';
 import { lookupSlug, reserveSlug } from './slug';
 import {
-  checkWindowedIpLimit, clientIp, HOUR_MS, MINUTE_MS,
-  RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR, RL_WS_PER_MIN,
+  checkWindowedIpLimit, clientIp, HOUR_MS,
+  RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR,
 } from './rateLimit';
 
 export { Room };
@@ -129,22 +129,21 @@ async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response |
   if (request.headers.get('Upgrade') !== 'websocket') {
     return new Response('Expected websocket', { status: 426 });
   }
-  // SI-06: WS handshake RATE limit (KV, 60s window). Spec said "10 concurrent
-  // WS/IP" (a concurrency cap); v1 implements a handshake rate — true concurrency
-  // capping needs cross-DO per-IP socket tracking (leak-prone). The ratelimit
-  // binding was considered and rejected: its per-location, async-updated counters
-  // enforce only approximately and can't be deterministically verified. Uniform
-  // KV counter instead. See /spec/security.md §1. v1.5 may revisit.
-  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'ws', clientIp(request), RL_WS_PER_MIN, MINUTE_MS))) {
-    return rateLimited('WebSocket handshake rate exceeded for this IP.', 60);
-  }
   const slug = match[1];
   const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
   if (roomId === null) {
     return errorResponse('SLUG_NOT_FOUND', 'Room not found', 404);
   }
+  // SI-06: per-IP/min WS handshake limit is enforced atomically in the room DO
+  // (KV is structurally unfit for a sub-minute window — read cache ≥ window,
+  // 1 write/sec/key cap under burst). Forward the trusted CF-Connecting-IP as
+  // an internal header — set (override) so a client-supplied X-Client-IP can't
+  // spoof. The DO is only reachable via the Worker; trust ends here.
+  // See /spec/security.md §1.
   const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
-  return stub.fetch(new Request('https://do/ws', request));
+  const doReq = new Request('https://do/ws', request);
+  doReq.headers.set('X-Client-IP', clientIp(request));
+  return stub.fetch(doReq);
 }
 
 /** GET /api/rooms/:slug → minimal `{state, deck}`. Full state comes over WS in R2. */

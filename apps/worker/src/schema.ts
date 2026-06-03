@@ -101,4 +101,14 @@ export function initSchema(sql: SqlStorage): void {
     payload TEXT
   )`);
   sql.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_task_at ON scheduled_task(at)`);
+
+  // SI-06 WS handshake rate counter (per-IP, per-room, 30/min). Atomic in the DO —
+  // KV is structurally unfit for a sub-minute window. Self-cleans on each check
+  // (DELETE rows with window_start < current). See /spec/security.md §1.
+  sql.exec(`CREATE TABLE IF NOT EXISTS ws_handshake_rate (
+    ip           TEXT NOT NULL,
+    window_start INTEGER NOT NULL,
+    count        INTEGER NOT NULL,
+    PRIMARY KEY (ip, window_start)
+  )`);
 }
