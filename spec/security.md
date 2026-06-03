@@ -29,9 +29,21 @@ The 30/min handshake value is a defensible start (~15× normal use); tunable pos
 
 ## 2. Security invariants
 
-- **SI-01** Server is the sole source of identity — handlers trust only the socket's bound voterId, never a payload field.
-- **SI-02** Role checks server-side on every privileged message.
-- **SI-03** Voter cookie: HttpOnly, Secure, SameSite=Strict, scoped Path, Max-Age.
-- **SI-04** Story text rendered as plain text (no `dangerouslySetInnerHTML`); external URLs `rel="noopener noreferrer"`.
+Verified 2026-06-03. SI-01–04 audited with code evidence; non-host regression coverage added where it was missing. SI-05 lands with S8.
+
+- **SI-01 — server is the sole source of identity.** ENFORCED.
+  - `dispatcher.ts:93` seeds `ctx.voterId` from `getAttachment(ws)?.voterId ?? null` only. Every handler reads identity from `ctx.voterId`; no handler reads a payload field as the actor's identity. `TRANSFER_HOST`'s `newHostVoterId` payload field is the *target* of the transfer — the actor's authority is still `requireHost(ctx)` against the bound id.
+- **SI-02 — role checks server-side on every privileged message.** ENFORCED.
+  - Host-only handlers, each citing `requireHost(ctx)` ahead of any mutation: `ADD_STORY` (dispatcher.ts:155), `EDIT_STORY` (dispatcher.ts:181), `OPEN_VOTING` incl. revealed→active re-open (dispatcher.ts:206), `REVEAL_VOTES` (dispatcher.ts:284), `COMMIT_STORY` (dispatcher.ts:312), `SKIP_STORY` (dispatcher.ts:354), `SPLIT_STORY` (dispatcher.ts:331), `TRANSFER_HOST` (dispatcher.ts:488).
+  - `VOTE_CAST` is voter-level with a spectator restriction at the operation layer (`operations.ts:432` throws `SPECTATOR_CANNOT_VOTE`).
+  - `CLAIM_HOST` is deliberately state-gated rather than host-gated (dispatcher.ts:441–474): `NOT_JOINED` if the socket isn't bound, `state !== 'host_vacant'` short-circuits with a direct-reply `HOST_RECLAIMED` naming the actual host (first-valid-wins), and the claimer must exist via `getVoterById`. Per the host-lifecycle design, any connected, non-`left` participant may claim during vacancy; the connected check is implicit through the JOIN flow (a JOINed socket has `connection_state='connected'`).
+  - `RECONNECT_PING` and `JOIN_ROOM` are correctly not host-gated.
+  - **Gap found**: `EDIT_STORY` had no non-host regression test. Fixed in this commit (`dispatcher.test.ts:321+` — voter sender ⇒ `NOT_HOST`, story text unchanged, no broadcast, no dedupe row).
+- **SI-03 — voter cookie properties.** ENFORCED.
+  - `worker.ts:57–60` builds `pointe_session=<hostVoterId>; HttpOnly; Secure; SameSite=Strict; Path=/api/rooms/<slug>; Max-Age=86400`. Set at `worker.ts:122` on the `POST /api/rooms` 201 response. Attributes locked by `worker.test.ts` (SI-03 suite, 2 cases).
+- **SI-04 — no injection surface.** ENFORCED.
+  - Zero `dangerouslySetInnerHTML` in `apps/web/src/` (the two mentions are doc comments explaining their absence in `LongText.tsx` and `SplitForm.tsx`).
+  - Rendered story fields: `text` and `description` through `<LongText/>` (escaped React strings), `externalId` through `{story.externalId}` (escaped). Escape-correctness locked by `Commit.test.tsx` (LongText `<img onerror=…>` test) and `Split.test.tsx` (form-input `<img onerror=…>` test).
+  - **Note**: `Story.externalUrl` exists in `@pointe/shared` but **no UI renders it as a link today** — there are zero `<a>` tags in `apps/web/src/`. The "external URLs `rel="noopener noreferrer"`" clause is vacuously satisfied for v1; when a future iteration adds link rendering, that surface must carry the rel attributes (and a test).
 - **SI-05** AI prompt-injection defense (S8): story text as user message, `externalUrl` never sent.
 - **SI-06** Rate limiting at every external surface (§1).

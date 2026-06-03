@@ -320,6 +320,26 @@ describe('dispatcher.handleMessage — story-queue messages (R3.i)', () => {
     expect(calls).toEqual([]);
   });
 
+  it('EDIT_STORY (non-host, SI-02): ERROR NOT_HOST; story text unchanged; no broadcast; no dedupe row', () => {
+    const sql = setupRoom();
+    addStory(sql, { storyId: 's-1', text: 'old', now: NOW + 1 });
+    addVoter(sql, { voterId: 'v-a', displayName: 'A', now: NOW + 2 });
+    const { ws } = fakeWs(VOTER);
+    const { calls, broadcast } = captureBroadcasts();
+    const out = handleMessage(
+      sql, ws,
+      storyEnv('EDIT_STORY', 'e-nh', { storyId: 's-1', text: 'pwn' }),
+      broadcast,
+    );
+    expect(out).toHaveLength(1);
+    expect((out[0].payload as ErrorPayload).code).toBe('NOT_HOST');
+    expect(out[0].id).toBe('e-nh'); // request id echoed
+    expect(calls).toEqual([]);
+    expect(getRoomState(sql).stories[0].text).toBe('old'); // unchanged
+    const rows = sql.exec(`SELECT id FROM processed_message WHERE id = 'e-nh'`).toArray();
+    expect(rows).toHaveLength(0); // rejected → no dedupe record
+  });
+
   // ---- OPEN_VOTING ----
 
   it('OPEN_VOTING (host, pending): transitions to active; broadcasts voting_opened', () => {
