@@ -86,9 +86,10 @@ describe('dispatcher.handleMessage — R2.ii pipe (reply id echo correction)', (
     await withRoom((sql) => {
       seedRoom(sql);
       const { ws } = fakeWs();
-      const out = handleMessage(sql, ws, env('REQUEST_AI', 'ai-1'));
+      // KICK_VOTER is in the still-unimplemented set (S8.iii or later).
+      const out = handleMessage(sql, ws, env('KICK_VOTER', 'k-1'));
       expect((out[0].payload as ErrorPayload).code).toBe('NOT_IMPLEMENTED');
-      expect(out[0].id).toBe('ai-1');
+      expect(out[0].id).toBe('k-1');
     });
   });
 

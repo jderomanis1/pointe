@@ -12,7 +12,10 @@ import {
   getVoterById, setRoomHost, skipStory, splitStory,
 } from './operations';
 import { getAttachment } from './broadcast';
-import { getAiSuggestion, projectAiForRecipient } from './ai';
+import {
+  checkAiRateLimit, deriveAiCacheKey, getAiCache, getAiSuggestion,
+  projectAiForRecipient, upsertAiSuggestion,
+} from './ai';
 
 /** Side-effect callback the room.ts wrapper supplies; tests default to a no-op. */
 export type BroadcastFn = (
@@ -27,6 +30,31 @@ export type CancelHostVacantFn = () => void;
 /** S7.iii: fan out a non-DELTA server envelope (HOST_RECLAIMED, …) to every
  *  attached socket. Wrapped here so the dispatcher doesn't import broadcast.ts. */
 export type BroadcastEnvelopeFn = <T>(type: ServerMessageType, payload: T) => void;
+
+/**
+ * S8.ii.b — AI orchestrator. The room.ts wrapper supplies the live
+ * implementation (calls requestCeruSuggestion + iterates host sockets).
+ *
+ * AA-1: every method here is host-only by construction — `sendToHost`
+ * iterates `getWebSockets()` filtering by current room.host_voter_id, and
+ * `scheduleAiCall` writes to ai_suggestion + ai_cache then calls sendToHost.
+ * No voter-visible egress goes through this surface.
+ *
+ * `available` reflects whether `env.ANTHROPIC_API_KEY` is set. A cache hit
+ * can still complete with `available: false` (it's already-paid-for data),
+ * but a fresh call cannot.
+ */
+export type AiOrchestrator = {
+  available: boolean;
+  sendToHost: <T>(type: ServerMessageType, payload: T) => void;
+  scheduleAiCall: (params: {
+    storyId: string;
+    storyText: string;
+    deckValues: string[];
+    cacheKey: string;
+    requestedAt: number;
+  }) => void;
+};
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const REVEALED_HISTORY_LIMIT = 3;
@@ -47,6 +75,8 @@ type HandlerCtx = {
   cancelHostVacantTask: CancelHostVacantFn;
   /** S7.iii: fan out a top-level non-DELTA server message. No-op in tests by default. */
   broadcastEnvelope: BroadcastEnvelopeFn;
+  /** S8.ii.b: AI orchestrator. Null in tests / when the worker has no AI wiring. */
+  aiOrchestrator: AiOrchestrator | null;
 };
 
 /**
@@ -60,6 +90,7 @@ export function handleMessage(
   broadcast: BroadcastFn = () => {},
   cancelHostVacantTask: CancelHostVacantFn = () => {},
   broadcastEnvelope: BroadcastEnvelopeFn = () => {},
+  aiOrchestrator: AiOrchestrator | null = null,
 ): Envelope[] {
   // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
@@ -102,6 +133,7 @@ export function handleMessage(
     },
     cancelHostVacantTask,
     broadcastEnvelope,
+    aiOrchestrator,
   });
 }
 
@@ -131,6 +163,12 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleClaimHost(ctx);
     case 'TRANSFER_HOST':
       return handleTransferHost(ctx);
+    case 'REQUEST_AI':
+      // Async: returns nothing on accept (host UI is optimistic + the snapshot
+      // is AA-1-scoped). We CANNOT return a Promise from `route` because the
+      // caller (room.ts) does `for (env of envelopes) ws.send(...)` — so the
+      // handler schedules the async work through the orchestrator and exits.
+      return handleRequestAi(ctx);
     default:
       return [makeError('NOT_IMPLEMENTED', `${ctx.envelope.type} arrives in a later task`, false, ctx.envelope.id)];
   }
@@ -505,6 +543,132 @@ function handleTransferHost(ctx: HandlerCtx): Envelope[] {
   const reclaimed: HostReclaimedPayload = { newHostVoterId: target.id, via: 'transfer' };
   ctx.broadcastEnvelope('HOST_RECLAIMED', reclaimed);
   return [makeEnvelope('HOST_RECLAIMED', reclaimed, envelope.id)];
+}
+
+/**
+ * S8.ii.b — REQUEST_AI: host opts in to a CERU suggestion for one story.
+ *
+ * Ordering: host auth → payload validation → orchestrator presence →
+ * story exists + state eligible (pending/active — the anti-anchoring
+ * window) → existing-suggestion fast paths → cache hit → key availability
+ * → rate budget → accept (write `pending`, hand off to async orchestrator).
+ *
+ * Returns `[]` on accept and on the cache-hit fast path (the orchestrator's
+ * sendToHost has already pushed STORY_AI_READY in the hit case). Returns
+ * an ERROR envelope on every failure path so the host's request id echoes.
+ *
+ * AA-1: every notification leaves through `aiOrchestrator.sendToHost` —
+ * iterates host sockets only. Nothing voter-visible happens through this
+ * handler, by construction (verified by the host-only-addressing test).
+ */
+function handleRequestAi(ctx: HandlerCtx): Envelope[] {
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isRequestAiPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'REQUEST_AI payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  if (!ctx.aiOrchestrator) {
+    // No AI wiring in this Worker build / test — same UX as missing key.
+    return [makeError('AI_UNAVAILABLE', 'AI is currently unavailable', false, ctx.envelope.id)];
+  }
+
+  // Story guard: must exist and be pre-reveal. Reveal closes the AA-1
+  // window — we won't generate a suggestion after the team has seen votes.
+  const story = ctx.sql
+    .exec<{ id: string; text: string; state: string }>(
+      `SELECT id, text, state FROM story WHERE id = ?`, p.storyId,
+    ).toArray()[0];
+  if (!story) {
+    return [makeError('STORY_NOT_FOUND', 'Story not found', false, ctx.envelope.id)];
+  }
+  if (story.state !== 'pending' && story.state !== 'active') {
+    return [makeError(
+      'STORY_NOT_ELIGIBLE_FOR_AI',
+      `AI suggestion not allowed in state '${story.state}'`,
+      false, ctx.envelope.id,
+    )];
+  }
+
+  // Idempotency on existing suggestion.
+  const existing = getAiSuggestion(ctx.sql, p.storyId);
+  if (existing) {
+    if (existing.state === 'pending') {
+      // A call is already in flight — silently absorb.
+      return [];
+    }
+    if (existing.state === 'ready') {
+      // Re-send notification; no new work, no rate consume.
+      ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
+      return [];
+    }
+    // existing.state === 'failed' → fall through and try again.
+  }
+
+  // Resolve deck for cache key + the eventual API call.
+  const roomRow = ctx.sql
+    .exec<{ deck: string; custom_deck: string | null }>(
+      `SELECT deck, custom_deck FROM room LIMIT 1`,
+    ).toArray()[0];
+  if (!roomRow) {
+    return [makeError('ROOM_NOT_FOUND', 'Room not initialized', false, ctx.envelope.id)];
+  }
+  const deckValues = resolveDeck(
+    roomRow.deck as Parameters<typeof resolveDeck>[0],
+    roomRow.custom_deck ? (JSON.parse(roomRow.custom_deck) as string[]) : null,
+  );
+  const cacheKey = deriveAiCacheKey(story.text, deckValues);
+  const now = Date.now();
+
+  // Cache check — hits do NOT consume rate budget.
+  const cached = getAiCache(ctx.sql, cacheKey);
+  if (cached) {
+    upsertAiSuggestion(ctx.sql, {
+      storyId: p.storyId,
+      state: 'ready',
+      payload: cached,
+      requestedAt: now,
+      completedAt: now,
+      shared: false,
+    });
+    ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
+    return [];
+  }
+
+  // Missing key → can't call. Surfaced as a direct ERROR so the host UI
+  // can disable the affordance until the secret is configured. No rate
+  // consumption — we structurally couldn't have made the call.
+  if (!ctx.aiOrchestrator.available) {
+    return [makeError('AI_UNAVAILABLE', 'AI is currently unavailable', false, ctx.envelope.id)];
+  }
+
+  // Rate check (S7 SI-06 shape — increment-then-check, room-scoped hourly).
+  const gate = checkAiRateLimit(ctx.sql, { now });
+  if (!gate.allowed) {
+    const msg = `AI rate limit (${gate.limit}/hour) reached; try again after ${new Date(gate.resetAt).toISOString()}`;
+    return [makeError('AI_RATE_LIMITED', msg, true, ctx.envelope.id)];
+  }
+
+  // Accept: write pending and hand off. The orchestrator runs the API call
+  // off-thread (room.ts keeps the promise alive — the DO is not evicted
+  // while a fetch is in flight). Re-read SQL on settle (the S7 cursor
+  // lesson: the story may have been revealed/skipped/split meanwhile).
+  upsertAiSuggestion(ctx.sql, {
+    storyId: p.storyId, state: 'pending', requestedAt: now,
+  });
+  ctx.aiOrchestrator.scheduleAiCall({
+    storyId: p.storyId,
+    storyText: story.text,
+    deckValues,
+    cacheKey,
+    requestedAt: now,
+  });
+  return [];
+}
+
+function isRequestAiPayload(p: unknown): p is { storyId: string } {
+  return typeof p === 'object' && p !== null
+    && typeof (p as { storyId: unknown }).storyId === 'string';
 }
 
 /** Build the snapshot with anti-anchoring + scope limit. */

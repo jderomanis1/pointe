@@ -1,17 +1,22 @@
-import type { DurableObjectState, SqlStorage } from '@cloudflare/workers-types';
-import type { DeckType, HostVacantPayload, RoomMode } from '@pointe/shared';
+import type { DurableObjectState, SqlStorage, WebSocket } from '@cloudflare/workers-types';
+import type {
+  DeckType, Envelope, HostVacantPayload, RoomMode, ServerMessageType,
+  StoryAiFailedPayload, StoryAiReadyPayload,
+} from '@pointe/shared';
+import { PROTOCOL_VERSION } from '@pointe/shared';
 import type { Env } from './worker';
 import { initSchema } from './schema';
 import {
   createRoom, getHostVoterId, getRoomLifecycle, getRoomState,
   markRoomHostVacant, setVoterConnection,
 } from './operations';
-import { handleMessage } from './dispatcher';
+import { handleMessage, type AiOrchestrator } from './dispatcher';
 import { broadcast, broadcastEnvelope, getAttachment } from './broadcast';
 import { RL_WS_PER_MIN } from './rateLimit';
 import {
   cancelTasksByType, runDueTasks, scheduleTask, type ScheduledTask,
 } from './scheduler';
+import { putAiCache, requestCeruSuggestion, upsertAiSuggestion } from './ai';
 
 /** Grace window between host-disconnect and the host_vacant transition. */
 export const HOST_VACANT_GRACE_MS = 30_000;
@@ -70,10 +75,12 @@ function jsonResponse(body: unknown, status: number): Response {
 export class Room {
   private sql: SqlStorage;
   private ctx: DurableObjectState;
+  private env: Env;
 
-  constructor(ctx: DurableObjectState, _env: Env) {
+  constructor(ctx: DurableObjectState, env: Env) {
     this.sql = ctx.storage.sql;
     this.ctx = ctx;
+    this.env = env;
     initSchema(this.sql);
   }
 
@@ -98,14 +105,7 @@ export class Room {
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
         this.ctx.acceptWebSocket(server); // hibernation accept — NOT server.accept()
-        const res = new Response(null, { status: 101, webSocket: client });
-        // Temporary diagnostic headers — let a raw https probe read what the
-        // DO actually saw on each handshake. Removed in the cleanup commit
-        // once SI-06 is verified enforcing on prod.
-        res.headers.set('X-RL-IP', gate.ip);
-        res.headers.set('X-RL-Count', String(gate.count));
-        res.headers.set('X-RL-Window', String(gate.windowStart));
-        return res;
+        return new Response(null, { status: 101, webSocket: client });
       }
       if (method === 'POST' && pathname === '/init') {
         const body = (await request.json()) as InitBody;
@@ -135,9 +135,113 @@ export class Room {
       () => { void cancelTasksByType(this.ctx.storage, 'host_vacant'); },
       // S7.iii: HOST_RECLAIMED fan-out for CLAIM_HOST / TRANSFER_HOST / reclaim.
       (type, payload) => { broadcastEnvelope(this.ctx, type, payload); },
+      // S8.ii.b: REQUEST_AI orchestration. The dispatcher's handler runs
+      // sync (cache check, rate check, accept); the API call happens here.
+      this.aiOrchestrator(),
     );
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
+    }
+  }
+
+  // ---- S8.ii.b — AI orchestration -----------------------------------------
+
+  /**
+   * Build the per-message AiOrchestrator. `available` is derived live from
+   * env.ANTHROPIC_API_KEY (a secret that may be unset in CI / preview); the
+   * dispatcher uses it to gate fresh API calls. Cache hits succeed regardless.
+   */
+  private aiOrchestrator(): AiOrchestrator {
+    return {
+      available: !!this.env.ANTHROPIC_API_KEY,
+      sendToHost: (type, payload) => this.sendToHostSockets(type, payload),
+      scheduleAiCall: (p) => {
+        // Fire-and-forget. The DO runtime keeps the promise alive while
+        // there's outstanding I/O — same shape as cancelTasksByType above.
+        void this.runAiCall(p);
+      },
+    };
+  }
+
+  /**
+   * AA-1 enforcement: deliver one server envelope to every socket bound to
+   * the current `room.host_voter_id`. A host with multiple tabs gets it on
+   * each; if no live host socket exists, nothing is sent (the snapshot
+   * covers reconnect). Host id is resolved LIVE — survives host transfer.
+   */
+  private sendToHostSockets<T>(type: ServerMessageType, payload: T): void {
+    const hostId = getHostVoterId(this.sql);
+    if (!hostId) return;
+    const env: Envelope<T> = {
+      v: PROTOCOL_VERSION,
+      type,
+      id: crypto.randomUUID(),
+      at: Date.now(),
+      payload,
+    };
+    const raw = JSON.stringify(env);
+    for (const sock of this.ctx.getWebSockets()) {
+      const att = getAttachment(sock);
+      if (att?.voterId !== hostId) continue;
+      try { sock.send(raw); } catch { /* socket closing */ }
+    }
+  }
+
+  /**
+   * The async half of REQUEST_AI. Calls Anthropic, then re-reads SQL
+   * (the S7 cursor lesson — the story may have moved). Persists ai_suggestion
+   * + ai_cache on success; ai_suggestion failed-state on failure. Notifies
+   * host via sendToHostSockets. Never throws.
+   */
+  private async runAiCall(p: {
+    storyId: string;
+    storyText: string;
+    deckValues: string[];
+    cacheKey: string;
+    requestedAt: number;
+  }): Promise<void> {
+    try {
+      const key = this.env.ANTHROPIC_API_KEY;
+      // Defense in depth: the dispatcher already gated on this. If the
+      // secret got unset between accept and now (impossible in practice
+      // but cheap to handle), treat as a failed call.
+      if (!key) {
+        upsertAiSuggestion(this.sql, {
+          storyId: p.storyId, state: 'failed', errorMessage: 'AI_UNAVAILABLE',
+          requestedAt: p.requestedAt, completedAt: Date.now(),
+        });
+        const failed: StoryAiFailedPayload = { storyId: p.storyId, errorMessage: 'AI_UNAVAILABLE' };
+        this.sendToHostSockets('STORY_AI_FAILED', failed);
+        return;
+      }
+      const result = await requestCeruSuggestion(key, p.storyText, p.deckValues);
+      const now = Date.now();
+      if (result.ok) {
+        const payload = {
+          complexity: result.suggestion.complexity,
+          effort: result.suggestion.effort,
+          risk: result.suggestion.risk,
+          unknowns: result.suggestion.unknowns,
+          suggestedRange: result.suggestion.suggestedRange,
+          rationale: result.suggestion.rationale,
+        };
+        upsertAiSuggestion(this.sql, {
+          storyId: p.storyId, state: 'ready', payload,
+          requestedAt: p.requestedAt, completedAt: now, shared: false,
+        });
+        putAiCache(this.sql, { cacheKey: p.cacheKey, payload, now });
+        const ready: StoryAiReadyPayload = { storyId: p.storyId };
+        this.sendToHostSockets('STORY_AI_READY', ready);
+      } else {
+        upsertAiSuggestion(this.sql, {
+          storyId: p.storyId, state: 'failed', errorMessage: result.errorMessage,
+          requestedAt: p.requestedAt, completedAt: now,
+        });
+        const failed: StoryAiFailedPayload = { storyId: p.storyId, errorMessage: result.errorMessage };
+        this.sendToHostSockets('STORY_AI_FAILED', failed);
+      }
+    } catch {
+      // Never throw — voting must not be blocked by an AI fault.
     }
   }
 
@@ -249,26 +353,15 @@ export class Room {
    * counter and reads the new value in a single statement. .one() is safe
    * here because RETURNING always yields exactly one row.
    *
-   * Why the upsert-returning shape: the prior SELECT-then-INSERT pattern
-   * read with .one() which throws on zero rows in real CF DO SQLite — the
-   * first handshake in every window would throw, the increment never
-   * landed, and the limit never tripped in prod. The mock used to silently
-   * return undefined for zero rows so unit tests passed. Both are fixed:
-   * this code never reads zero rows, AND the mock now throws on .one()
-   * with zero rows so a future bug of this shape couldn't hide again.
-   *
-   * Returns the diagnostics regardless of outcome — the caller attaches
-   * X-RL-* headers to the 101 response on the allowed path.
-   *
    * Self-cleans stale rows (window_start < current) on every call so the
    * table stays bounded by distinct IPs in the last minute.
+   *
+   * (S8.ii.b cleanup: the temporary X-RL-* diagnostic headers from the
+   * SI-06 verification have been removed. Status + the ws_handshake_rate
+   * row are the source of truth now; tests read the row via
+   * runInDurableObject when the count needs assertion.)
    */
-  private checkWsHandshakeRate(request: Request): {
-    limited: Response | null;
-    ip: string;
-    count: number;
-    windowStart: number;
-  } {
+  private checkWsHandshakeRate(request: Request): { limited: Response | null } {
     const ip = request.headers.get('X-Client-IP') ?? 'unknown';
     const now = Date.now();
     const windowStart = Math.floor(now / 60_000) * 60_000;
@@ -279,26 +372,19 @@ export class Room {
        RETURNING count`,
       ip, windowStart,
     ).one();
-    const count = result.count;
-    if (count > RL_WS_PER_MIN) {
+    if (result.count > RL_WS_PER_MIN) {
       const body = {
         code: 'RATE_LIMITED',
         message: 'WebSocket handshake rate exceeded for this IP in this room.',
       };
-      const limited = new Response(JSON.stringify(body), {
-        status: 429,
-        headers: {
-          'Content-Type': 'application/json',
-          'Retry-After': '60',
-          // Temporary diagnostics (removed in the cleanup commit).
-          'X-RL-IP': ip,
-          'X-RL-Count': String(count),
-          'X-RL-Window': String(windowStart),
-        },
-      });
-      return { limited, ip, count, windowStart };
+      return {
+        limited: new Response(JSON.stringify(body), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+        }),
+      };
     }
-    return { limited: null, ip, count, windowStart };
+    return { limited: null };
   }
 
   /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */

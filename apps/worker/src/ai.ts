@@ -10,6 +10,7 @@
  * `AISuggestion` shared type minus the bookkeeping fields the columns already
  * carry (storyId / state / requestedAt / completedAt / errorMessage / shared).
  */
+import { createHash } from 'node:crypto';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import type { AIDim, AISuggestion, AISuggestionState } from '@pointe/shared';
 
@@ -226,6 +227,24 @@ export function checkAiRateLimit(
     limit,
     resetAt: windowStart + HOUR_MS,
   };
+}
+
+// ---- S8.ii.b cache-key derivation -----------------------------------------
+
+/**
+ * The AI cache key. Identical story text on the same resolved deck hits.
+ * NUL byte fence separates text from deck so a story that happens to look
+ * like a JSON array of deck values can't collide. SHA-256, hex-encoded.
+ *
+ * Sync via `node:crypto` — workerd has `nodejs_compat` on per wrangler.toml.
+ * The dispatcher's REQUEST_AI handler is a sync route; it needs the key
+ * up-front for the existing-suggestion / cache-check fast paths before
+ * handing off to the async orchestrator.
+ */
+export function deriveAiCacheKey(storyText: string, deckValues: string[]): string {
+  return createHash('sha256')
+    .update(`${storyText} ${JSON.stringify(deckValues)}`)
+    .digest('hex');
 }
 
 // ---- S8.ii.a Claude suggestion generator ----------------------------------
