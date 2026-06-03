@@ -18,10 +18,3 @@ zone_name = "pointe.team"
 [[kv_namespaces]]
 binding = "POINTE_SLUGS"
 id = "2324d231abff45ff8c4d7b30560f2ff5"
-
-# SI-06: short-window WS handshake limiter. Per-hour limits live in KV under the
-# rl: prefix (the binding's window must be 10s or 60s). See /spec/security.md §1.
-[[ratelimits]]
-name = "WS_HANDSHAKE_LIMITER"
-namespace_id = "1001"
-simple = { limit = 30, period = 60 }

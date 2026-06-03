@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { checkHourlyIpLimit, clientIp } from '../src/rateLimit';
+import {
+  checkWindowedIpLimit, clientIp, HOUR_MS, MINUTE_MS,
+} from '../src/rateLimit';
 import { createMockKv } from './helpers/mockKv';
 
 describe('clientIp', () => {
@@ -13,69 +15,94 @@ describe('clientIp', () => {
   });
 });
 
-describe('checkHourlyIpLimit — fixed-window KV counter', () => {
-  it('allows requests under the limit; the (limit+1)th is rejected', async () => {
+describe('checkWindowedIpLimit — fixed-window KV counter', () => {
+  it('hour window: allows under the limit; the (limit+1)th is rejected', async () => {
     const kv = createMockKv();
     for (let i = 0; i < 3; i++) {
-      expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 3)).toBe(true);
+      expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 3, HOUR_MS)).toBe(true);
     }
-    expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 3)).toBe(false);
+    expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 3, HOUR_MS)).toBe(false);
+  });
+
+  it('minute window: allows under the limit; the (limit+1)th is rejected', async () => {
+    const kv = createMockKv();
+    for (let i = 0; i < 3; i++) {
+      expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 3, MINUTE_MS)).toBe(true);
+    }
+    expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 3, MINUTE_MS)).toBe(false);
   });
 
   it('per-IP isolation: hitting the cap on one IP does not block another', async () => {
     const kv = createMockKv();
-    expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(true);
-    expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(false);
-    expect(await checkHourlyIpLimit(kv, 'create', '2.2.2.2', 1)).toBe(true);
+    expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(true);
+    expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(false);
+    expect(await checkWindowedIpLimit(kv, 'ws', '2.2.2.2', 1, MINUTE_MS)).toBe(true);
   });
 
-  it('per-action isolation: hitting the create cap does not block lookups', async () => {
+  it('per-action isolation: hitting the create cap does not block lookups or ws', async () => {
     const kv = createMockKv();
-    expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(true);
-    expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(false);
-    expect(await checkHourlyIpLimit(kv, 'lookup', '1.1.1.1', 1)).toBe(true);
+    expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 1, HOUR_MS)).toBe(true);
+    expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 1, HOUR_MS)).toBe(false);
+    expect(await checkWindowedIpLimit(kv, 'lookup', '1.1.1.1', 1, HOUR_MS)).toBe(true);
+    expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(true);
   });
 
-  it('crossing the hour boundary resets the bucket', async () => {
+  it('hour bucket rollover: capped IP can request again in the next hour', async () => {
     vi.useFakeTimers();
     try {
-      // Bucket A.
-      vi.setSystemTime(new Date('2026-06-03T10:00:00Z').getTime());
-      expect(await checkHourlyIpLimit(createMockKv(), 'create', '1.1.1.1', 1)).toBe(true);
-
-      // Fresh KV; fill bucket A to the cap.
       const kv = createMockKv();
-      expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(true);
-      expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(false);
+      vi.setSystemTime(new Date('2026-06-03T10:00:00Z').getTime());
+      expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 1, HOUR_MS)).toBe(true);
+      expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 1, HOUR_MS)).toBe(false);
 
-      // Bucket B (next hour) — capped IP can request again because the key is bucket-scoped.
       vi.setSystemTime(new Date('2026-06-03T11:00:01Z').getTime());
-      expect(await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 1)).toBe(true);
+      expect(await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 1, HOUR_MS)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('writes the counter with a 2h TTL (self-cleaning)', async () => {
-    const kv = createMockKv();
-    const putSpy = vi.spyOn(kv, 'put');
-    await checkHourlyIpLimit(kv, 'create', '1.1.1.1', 5);
-    expect(putSpy).toHaveBeenCalledTimes(1);
-    const [, , opts] = putSpy.mock.calls[0];
-    expect(opts).toEqual({ expirationTtl: 7_200 });
-  });
-
-  it('counter key carries the action, IP, and hour bucket', async () => {
+  it('minute bucket rollover: capped IP can request again in the next minute', async () => {
     vi.useFakeTimers();
     try {
-      vi.setSystemTime(new Date('2026-06-03T10:30:00Z').getTime());
+      const kv = createMockKv();
+      vi.setSystemTime(new Date('2026-06-03T10:00:00Z').getTime());
+      expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(true);
+      expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(false);
+
+      vi.setSystemTime(new Date('2026-06-03T10:01:01Z').getTime());
+      expect(await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 1, MINUTE_MS)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('TTL is 2× the window (covers slop), clamped to KV minimum 60s', async () => {
+    const kv = createMockKv();
+    const putSpy = vi.spyOn(kv, 'put');
+
+    await checkWindowedIpLimit(kv, 'create', '1.1.1.1', 5, HOUR_MS);
+    // First call → put with 2h TTL.
+    expect(putSpy.mock.calls[0][2]).toEqual({ expirationTtl: 7_200 });
+
+    await checkWindowedIpLimit(kv, 'ws', '1.1.1.1', 5, MINUTE_MS);
+    // Minute window → 2 × 60s = 120s.
+    expect(putSpy.mock.calls[1][2]).toEqual({ expirationTtl: 120 });
+  });
+
+  it('counter key carries action, IP, and the window-scoped bucket', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = new Date('2026-06-03T10:30:00Z').getTime();
+      vi.setSystemTime(t);
       const kv = createMockKv();
       const putSpy = vi.spyOn(kv, 'put');
-      await checkHourlyIpLimit(kv, 'create', '9.9.9.9', 100);
-      const [key] = putSpy.mock.calls[0];
-      // bucket = floor(epoch_ms / 3_600_000) for the timestamp above.
-      const bucket = Math.floor(new Date('2026-06-03T10:30:00Z').getTime() / 3_600_000);
-      expect(key).toBe(`rl:create:9.9.9.9:${bucket}`);
+
+      await checkWindowedIpLimit(kv, 'create', '9.9.9.9', 100, HOUR_MS);
+      expect(putSpy.mock.calls[0][0]).toBe(`rl:create:9.9.9.9:${Math.floor(t / HOUR_MS)}`);
+
+      await checkWindowedIpLimit(kv, 'ws', '9.9.9.9', 100, MINUTE_MS);
+      expect(putSpy.mock.calls[1][0]).toBe(`rl:ws:9.9.9.9:${Math.floor(t / MINUTE_MS)}`);
     } finally {
       vi.useRealTimers();
     }
@@ -86,25 +113,18 @@ describe('checkHourlyIpLimit — fixed-window KV counter', () => {
 
 import worker from '../src/worker';
 import type { Env } from '../src/worker';
-import { createMockRateLimit } from './helpers/mockKv';
 
-function makeEnv(opts: { wsSuccess?: boolean } = {}): {
-  env: Env;
-  kv: ReturnType<typeof createMockKv>;
-  rl: ReturnType<typeof createMockRateLimit>;
-} {
+function makeEnv(): { env: Env; kv: ReturnType<typeof createMockKv> } {
   const kv = createMockKv();
-  const rl = createMockRateLimit({ success: opts.wsSuccess ?? true });
   const env = {
     ROOM: {
-      // Just enough surface for the handlers that 429 BEFORE they touch the DO.
-      idFromName: (_n: string) => ({ name: _n }),
+      // The handlers we test all 429 BEFORE touching the DO.
+      idFromName: (n: string) => ({ name: n }),
       get: (_id: unknown) => ({ fetch: async () => new Response('{}', { status: 500 }) }),
     } as unknown as Env['ROOM'],
     POINTE_SLUGS: kv,
-    WS_HANDSHAKE_LIMITER: rl.binding as unknown as Env['WS_HANDSHAKE_LIMITER'],
   };
-  return { env, kv, rl };
+  return { env, kv };
 }
 
 const CTX = {} as unknown as ExecutionContext;
@@ -113,9 +133,7 @@ const IP = { 'CF-Connecting-IP': '7.7.7.7' };
 describe('SI-06 handler integration — POST /api/rooms', () => {
   it('returns 429 once the create budget is spent for that IP', async () => {
     const { env, kv } = makeEnv();
-    // Pre-fill the bucket to the cap (20) for this IP — direct KV puts so
-    // we don't actually create 20 rooms.
-    const bucket = Math.floor(Date.now() / 3_600_000);
+    const bucket = Math.floor(Date.now() / HOUR_MS);
     await kv.put(`rl:create:7.7.7.7:${bucket}`, '20', { expirationTtl: 7_200 });
 
     const req = new Request('https://pointe.team/api/rooms', {
@@ -134,7 +152,7 @@ describe('SI-06 handler integration — POST /api/rooms', () => {
 describe('SI-06 handler integration — GET /api/rooms/:slug (lookup)', () => {
   it('returns 429 once the lookup budget is spent for that IP', async () => {
     const { env, kv } = makeEnv();
-    const bucket = Math.floor(Date.now() / 3_600_000);
+    const bucket = Math.floor(Date.now() / HOUR_MS);
     await kv.put(`rl:lookup:7.7.7.7:${bucket}`, '200', { expirationTtl: 7_200 });
 
     const req = new Request('https://pointe.team/api/rooms/apt-sparrow-16', { headers: IP });
@@ -145,36 +163,58 @@ describe('SI-06 handler integration — GET /api/rooms/:slug (lookup)', () => {
 });
 
 describe('SI-06 handler integration — GET /api/rooms/:slug/ws (WS handshake)', () => {
-  it('binding success=false → 429, no upgrade attempted', async () => {
-    const { env, rl } = makeEnv({ wsSuccess: false });
+  it('returns 429 once the per-minute WS budget is spent for that IP', async () => {
+    const { env, kv } = makeEnv();
+    const minuteBucket = Math.floor(Date.now() / MINUTE_MS);
+    await kv.put(`rl:ws:7.7.7.7:${minuteBucket}`, '30', { expirationTtl: 120 });
+
     const req = new Request('https://pointe.team/api/rooms/apt-sparrow-16/ws', {
       headers: { Upgrade: 'websocket', ...IP },
     });
     const res = await worker.fetch(req, env, CTX);
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBe('60');
-    expect(rl.calls).toEqual([{ key: '7.7.7.7' }]);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('RATE_LIMITED');
   });
 
-  it('binding success=true → proceeds past the limiter (does NOT short-circuit to 429)', async () => {
-    const { env, rl } = makeEnv({ wsSuccess: true });
-    const req = new Request('https://pointe.team/api/rooms/apt-sparrow-16/ws', {
-      headers: { Upgrade: 'websocket', ...IP },
-    });
-    const res = await worker.fetch(req, env, CTX);
-    expect(res.status).not.toBe(429);
-    expect(rl.calls).toEqual([{ key: '7.7.7.7' }]);
+  it('new minute bucket: a request after the rollover is allowed again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { env, kv } = makeEnv();
+      vi.setSystemTime(new Date('2026-06-03T10:00:00Z').getTime());
+      const bucketA = Math.floor(Date.now() / MINUTE_MS);
+      await kv.put(`rl:ws:7.7.7.7:${bucketA}`, '30', { expirationTtl: 120 });
+
+      // Same minute → 429.
+      const req1 = new Request('https://pointe.team/api/rooms/apt-sparrow-16/ws', {
+        headers: { Upgrade: 'websocket', ...IP },
+      });
+      expect((await worker.fetch(req1, env, CTX)).status).toBe(429);
+
+      // Next minute → past the limiter (room lookup downstream — irrelevant here).
+      vi.setSystemTime(new Date('2026-06-03T10:01:01Z').getTime());
+      const req2 = new Request('https://pointe.team/api/rooms/apt-sparrow-16/ws', {
+        headers: { Upgrade: 'websocket', ...IP },
+      });
+      const res = await worker.fetch(req2, env, CTX);
+      expect(res.status).not.toBe(429);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('the /ws path does NOT consume the lookup budget (matched before getRoomEndpoint)', async () => {
-    const { env, kv } = makeEnv({ wsSuccess: true });
+  it('the /ws path writes rl:ws but NOT rl:lookup (upgrade is not double-counted as a lookup)', async () => {
+    const { env, kv } = makeEnv();
     const req = new Request('https://pointe.team/api/rooms/apt-sparrow-16/ws', {
       headers: { Upgrade: 'websocket', ...IP },
     });
     await worker.fetch(req, env, CTX);
-    // No rl:lookup:... key was written.
-    const bucket = Math.floor(Date.now() / 3_600_000);
-    expect(kv.__dump().get(`rl:lookup:7.7.7.7:${bucket}`)).toBeUndefined();
+    const wsBucket = Math.floor(Date.now() / MINUTE_MS);
+    const lookupBucket = Math.floor(Date.now() / HOUR_MS);
+    // WS budget was charged.
+    expect(kv.__dump().get(`rl:ws:7.7.7.7:${wsBucket}`)).toBe('1');
+    // Lookup budget was NOT charged — the /ws path is matched before getRoomEndpoint.
+    expect(kv.__dump().get(`rl:lookup:7.7.7.7:${lookupBucket}`)).toBeUndefined();
   });
 });
-

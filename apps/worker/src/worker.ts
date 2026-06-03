@@ -1,4 +1,4 @@
-import type { KVNamespace, RateLimit } from '@cloudflare/workers-types';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import type {
   ApiError,
   CreateRoomRequest,
@@ -11,7 +11,8 @@ import { Room } from './room';
 import type { RoomReadState } from './operations';
 import { lookupSlug, reserveSlug } from './slug';
 import {
-  checkHourlyIpLimit, clientIp, RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR,
+  checkWindowedIpLimit, clientIp, HOUR_MS, MINUTE_MS,
+  RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR, RL_WS_PER_MIN,
 } from './rateLimit';
 
 export { Room };
@@ -19,8 +20,6 @@ export { Room };
 export interface Env {
   ROOM: DurableObjectNamespace;
   POINTE_SLUGS: KVNamespace;
-  /** SI-06 WS handshake rate limiter (30/min/IP). See /spec/security.md §1. */
-  WS_HANDSHAKE_LIMITER: RateLimit;
 }
 
 const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
@@ -63,7 +62,7 @@ export function buildSessionCookie(hostVoterId: string, slug: string): string {
 
 async function createRoomEndpoint(request: Request, env: Env): Promise<Response> {
   // SI-06 per-hour ceiling — fixed-window KV counter. See /spec/security.md §1.
-  if (!(await checkHourlyIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), RL_CREATE_PER_HOUR))) {
+  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), RL_CREATE_PER_HOUR, HOUR_MS))) {
     return rateLimited('Too many rooms created from this IP. Try again later.', 3600);
   }
   let parsed: unknown;
@@ -130,12 +129,13 @@ async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response |
   if (request.headers.get('Upgrade') !== 'websocket') {
     return new Response('Expected websocket', { status: 426 });
   }
-  // SI-06: WS handshake RATE limit (30/min/IP). Spec originally said "10 concurrent
-  // WS/IP" — a concurrency cap; v1 implements a handshake rate instead because true
-  // concurrency capping needs cross-DO per-IP socket tracking (leak-prone). The
-  // handshake rate catches socket spam without that fragility. See /spec/security.md §1.
-  const { success } = await env.WS_HANDSHAKE_LIMITER.limit({ key: clientIp(request) });
-  if (!success) {
+  // SI-06: WS handshake RATE limit (KV, 60s window). Spec said "10 concurrent
+  // WS/IP" (a concurrency cap); v1 implements a handshake rate — true concurrency
+  // capping needs cross-DO per-IP socket tracking (leak-prone). The ratelimit
+  // binding was considered and rejected: its per-location, async-updated counters
+  // enforce only approximately and can't be deterministically verified. Uniform
+  // KV counter instead. See /spec/security.md §1. v1.5 may revisit.
+  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'ws', clientIp(request), RL_WS_PER_MIN, MINUTE_MS))) {
     return rateLimited('WebSocket handshake rate exceeded for this IP.', 60);
   }
   const slug = match[1];
@@ -154,7 +154,7 @@ async function getRoomEndpoint(request: Request, env: Env): Promise<Response | n
   if (!match) return null;
   // SI-06 per-hour ceiling — fixed-window KV counter. /ws is matched earlier so
   // the upgrade path is NOT counted as a lookup. See /spec/security.md §1.
-  if (!(await checkHourlyIpLimit(env.POINTE_SLUGS, 'lookup', clientIp(request), RL_LOOKUP_PER_HOUR))) {
+  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'lookup', clientIp(request), RL_LOOKUP_PER_HOUR, HOUR_MS))) {
     return rateLimited('Too many lookups from this IP. Try again later.', 3600);
   }
   const slug = match[1];
