@@ -186,6 +186,50 @@ describe('applyChange — story queue', () => {
   });
 });
 
+describe('applyChange — ai_updated (S8.iii.c1, host-only delivery)', () => {
+  const READY = {
+    state: 'ready' as const,
+    complexity: { level: 'medium' as const, note: 'c' },
+    effort: { level: 'low' as const, note: 'e' },
+    risk: { level: 'low' as const, note: 'r' },
+    unknowns: { level: 'low' as const, note: 'u' },
+    suggestedRange: { low: '3', high: '5' },
+    rationale: 'because',
+    shared: false,
+  };
+
+  it('sets story.ai to a ready suggestion', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'active') });
+    state = applyChange(state, { kind: 'ai_updated', storyId: 's-1', ai: READY });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toEqual(READY);
+  });
+
+  it('replaces an existing ai with a newer one (e.g. failed → ready on retry)', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'active') });
+    state = applyChange(state, {
+      kind: 'ai_updated', storyId: 's-1',
+      ai: { state: 'failed', errorMessage: 'TIMEOUT' },
+    });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toEqual({ state: 'failed', errorMessage: 'TIMEOUT' });
+    state = applyChange(state, { kind: 'ai_updated', storyId: 's-1', ai: READY });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toEqual(READY);
+  });
+
+  it('targets only the matching story; siblings are left intact', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'active') });
+    state = applyChange(state, { kind: 'story_added', story: makeStory('s-2', 200, 'pending') });
+    state = applyChange(state, { kind: 'ai_updated', storyId: 's-1', ai: READY });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toEqual(READY);
+    expect(state.stories.find((s) => s.id === 's-2')?.ai).toBeUndefined();
+  });
+
+  it('unknown storyId is a no-op (idempotent on stale targets)', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'active') });
+    state = applyChange(state, { kind: 'ai_updated', storyId: 'nope', ai: READY });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toBeUndefined();
+  });
+});
+
 describe('applyChange — votes_revealed (the inversion)', () => {
   it('sets revealed[storyId] with votes+stats and flips story to revealed', () => {
     let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'active') });

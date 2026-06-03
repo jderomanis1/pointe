@@ -1,7 +1,7 @@
 import type { DurableObjectState, SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
-  DeckType, Envelope, HostVacantPayload, RoomMode, ServerMessageType,
-  StoryAiFailedPayload, StoryAiReadyPayload,
+  AISuggestion, DeckType, DeltaChange, Envelope, HostVacantPayload, RoomMode,
+  ServerMessageType, StoryAiFailedPayload, StoryAiReadyPayload,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import type { Env } from './worker';
@@ -212,6 +212,7 @@ export class Room {
         });
         const failed: StoryAiFailedPayload = { storyId: p.storyId, errorMessage: 'AI_UNAVAILABLE' };
         this.sendToHostSockets('STORY_AI_FAILED', failed);
+        this.sendAiUpdatedToHost(p.storyId, { state: 'failed', errorMessage: 'AI_UNAVAILABLE' });
         return;
       }
       const result = await requestCeruSuggestion(key, p.storyText, p.deckValues);
@@ -232,6 +233,9 @@ export class Room {
         putAiCache(this.sql, { cacheKey: p.cacheKey, payload, now });
         const ready: StoryAiReadyPayload = { storyId: p.storyId };
         this.sendToHostSockets('STORY_AI_READY', ready);
+        this.sendAiUpdatedToHost(p.storyId, {
+          state: 'ready', ...payload, shared: false,
+        });
       } else {
         upsertAiSuggestion(this.sql, {
           storyId: p.storyId, state: 'failed', errorMessage: result.errorMessage,
@@ -239,10 +243,21 @@ export class Room {
         });
         const failed: StoryAiFailedPayload = { storyId: p.storyId, errorMessage: result.errorMessage };
         this.sendToHostSockets('STORY_AI_FAILED', failed);
+        this.sendAiUpdatedToHost(p.storyId, { state: 'failed', errorMessage: result.errorMessage });
       }
     } catch {
       // Never throw — voting must not be blocked by an AI fault.
     }
+  }
+
+  /**
+   * S8.iii.c1 — host-only DELTA pushing the AI suggestion content. Frontend
+   * reducer applies `ai_updated` to set `story.ai`. Voters get nothing on
+   * AI completion (the AA-1 timing-leak guarantee).
+   */
+  private sendAiUpdatedToHost(storyId: string, ai: AISuggestion): void {
+    const change: DeltaChange = { kind: 'ai_updated', storyId, ai };
+    this.sendToHostSockets('DELTA', { changes: [change] });
   }
 
   async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean) {
