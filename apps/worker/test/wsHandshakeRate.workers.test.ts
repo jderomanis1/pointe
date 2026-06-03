@@ -8,8 +8,10 @@
  * on zero rows and hid the original WS-rate bug; this file is the standing
  * regression that catches a regression to that shape.
  *
- * If this is green, the upsert-returning fix from f4a99e4 is now verified
- * on the real runtime, not just the mock.
+ * S8.ii.b: the temporary X-RL-* diagnostic headers have been removed from
+ * the production response (SI-06 is verified enforcing). Tests now read
+ * `ws_handshake_rate` directly via runInDurableObject for the count when
+ * an assertion needs it. Status code (101 vs 429) covers the rate-trip.
  */
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
@@ -48,8 +50,6 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
     const res = await stub.fetch(wsReq('10.0.0.1'));
     await res.arrayBuffer();
     expect(res.status).toBe(101);
-    expect(res.headers.get('X-RL-Count')).toBe('1');
-    expect(res.headers.get('X-RL-IP')).toBe('10.0.0.1');
 
     // Confirm via the real ctx.storage.sql — no mock between us and the row.
     await runInDurableObject(stub, async (_instance, state) => {
@@ -63,29 +63,30 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
     });
   });
 
-  it('trips at exactly the 31st handshake for one IP (X-RL-Count climbs 1..30, then 429 with X-RL-Count=31)', async () => {
+  it('trips at exactly the 31st handshake for one IP (status climbs 101×30 then 429; row count = 31)', async () => {
     const id = ROOM.idFromName('rate-trip');
     const stub = ROOM.get(id);
     await ensureRoom(stub);
 
-    const counts: string[] = [];
     for (let i = 1; i <= RL_WS_PER_MIN; i++) {
       const res = await stub.fetch(wsReq('1.2.3.4'));
       await res.arrayBuffer();
       expect(res.status).toBe(101);
-      counts.push(res.headers.get('X-RL-Count') ?? '');
     }
-    // Count progression is exactly 1..30, deterministic — atomic upsert.
-    expect(counts).toEqual(
-      Array.from({ length: RL_WS_PER_MIN }, (_, i) => String(i + 1)),
-    );
 
     const res31 = await stub.fetch(wsReq('1.2.3.4'));
     expect(res31.status).toBe(429);
-    expect(res31.headers.get('X-RL-Count')).toBe('31');
     expect(res31.headers.get('Retry-After')).toBe('60');
     const body = (await res31.json()) as { code: string };
     expect(body.code).toBe('RATE_LIMITED');
+
+    // The DO row is the source of truth for the count progression.
+    await runInDurableObject(stub, async (_inst, state) => {
+      const row = state.storage.sql
+        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '1.2.3.4'`)
+        .toArray()[0];
+      expect(row.count).toBe(31); // 30 allowed + 1 over → still increments
+    });
   });
 
   it('two different IPs are independent (per-IP scope is structural)', async () => {
@@ -106,7 +107,12 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
     const okB = await stub.fetch(wsReq('2.2.2.2'));
     await okB.arrayBuffer();
     expect(okB.status).toBe(101);
-    expect(okB.headers.get('X-RL-Count')).toBe('1');
+    await runInDurableObject(stub, async (_inst, state) => {
+      const row = state.storage.sql
+        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '2.2.2.2'`)
+        .toArray()[0];
+      expect(row.count).toBe(1);
+    });
   });
 
   it('window rollover: crossing a minute boundary resets the counter for the new bucket', async () => {
@@ -142,7 +148,6 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
     const res = await stub.fetch(wsReq('3.3.3.3'));
     await res.arrayBuffer();
     expect(res.status).toBe(101);
-    expect(res.headers.get('X-RL-Count')).toBe('1');
 
     // And the aged row is gone; only the new-bucket row remains.
     await runInDurableObject(stub, async (_inst, state) => {

@@ -208,6 +208,19 @@ export type ClaimHostPayload = Record<string, never>;
 /** S7.iii: deliberate host transfer. SI-02: sender must be the current host. */
 export type TransferHostPayload = { newHostVoterId: string };
 
+/** S8.ii.b — REQUEST_AI: host opts in to a CERU suggestion for one story. */
+export type RequestAiPayload = { storyId: string };
+
+/** S8.ii.b — STORY_AI_READY: host-only notification that the AI suggestion
+ *  for `storyId` has settled to `ready`. The host's snapshot now carries
+ *  the projected suggestion. AA-1: never delivered to non-hosts. */
+export type StoryAiReadyPayload = { storyId: string };
+
+/** S8.ii.b — STORY_AI_FAILED (Fix 06): host-only graceful-failure notice.
+ *  Voting is never blocked — failure touches only the ai row + this host
+ *  message. AA-1: never delivered to non-hosts. */
+export type StoryAiFailedPayload = { storyId: string; errorMessage: string };
+
 /** S7.iii: a host-change occurred. `via` lets the UI tell the three stories apart. */
 export type HostReclaimedPayload = {
   newHostVoterId: string;
