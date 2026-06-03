@@ -74,6 +74,14 @@ export type Story = {
   createdAt: number;
   openedAt?: number;
   revealedAt?: number;
+  /**
+   * AA-1: when present, the recipient is entitled to see the (possibly partial)
+   * AI suggestion for this story. Absence is the signal that AA-1 stripped it
+   * — non-host stories MUST omit this key entirely (not null, not present-empty)
+   * when there is nothing to expose, so a "AI was requested" story is byte-
+   * identical to one where AI was never requested.
+   */
+  ai?: AISuggestion;
 };
 
 export type Voter = {
@@ -102,15 +110,26 @@ export type Vote = {
 export type AISuggestion = {
   storyId: string;
   state: AISuggestionState;
-  complexity: { level: DimLevel; note: string };
-  effort: { level: DimLevel; note: string };
-  risk: { level: DimLevel; note: string };
-  unknowns: { level: DimLevel; note: string };
-  suggestedRange: { low: string; high: string };
-  rationale: string;
+  /**
+   * CERU dimensions + range + rationale are populated only when state === 'ready'.
+   * Pending / failed / unavailable states carry only the bookkeeping fields.
+   */
+  complexity?: { level: DimLevel; note: string };
+  effort?: { level: DimLevel; note: string };
+  risk?: { level: DimLevel; note: string };
+  unknowns?: { level: DimLevel; note: string };
+  suggestedRange?: { low: string; high: string };
+  rationale?: string;
   errorMessage?: string;
   requestedAt: number;
   completedAt?: number;
+  /**
+   * Host-gated share flag (S8.iv): true once the host has explicitly chosen to
+   * surface the suggestion to voters after reveal. Until then AA-1 forbids
+   * voter-visible AI projection of this suggestion.
+   */
+  shared?: boolean;
+  sharedAt?: number;
 };
 
 export type AuditEvent = {

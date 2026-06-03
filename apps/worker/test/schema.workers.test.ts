@@ -7,7 +7,7 @@ const ROOM = (env as { ROOM: DurableObjectNamespace }).ROOM;
 
 const EXPECTED_TABLES = [
   'room', 'story', 'voter', 'vote', 'ai_suggestion', 'audit_event', 'ai_cache',
-  'processed_message', 'scheduled_task', 'ws_handshake_rate',
+  'processed_message', 'scheduled_task', 'ws_handshake_rate', 'ai_rate_limit',
 ];
 const EXPECTED_INDEXES = [
   'idx_story_order', 'idx_audit_at', 'idx_processed_at', 'idx_scheduled_task_at',
