@@ -11,6 +11,7 @@ import { HostVacantBanner } from './HostVacantBanner';
 import { ReplacedNotice } from './ReplacedNotice';
 import { AsyncOpenPanel } from './AsyncOpenPanel';
 import { AsyncVoterView } from './AsyncVoterView';
+import { AsyncHostMonitorView } from './AsyncHostMonitorView';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -40,14 +41,16 @@ export function RoomShell({
   // R5.v's COMMIT_STORY moves a revealed story to 'committed' → the queue takes over again.
   const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
 
-  // S9.ii.c3 — branch the voter render when an async window is open. Hosts
-  // and spectators keep the normal flow (host-monitoring lands in c4).
+  // S9.ii.c3 / c4 — branch the room render while an async window is open.
   const asyncWindowOpen = room?.mode === 'async'
     && room.asyncWindow !== undefined
     && room.state === 'active';
   const showAsyncVoterView = asyncWindowOpen
     && !isHost
     && me?.role !== 'spectator';
+  // c4: host monitoring view (countdown + share + per-story voted counts,
+  // never values). Spectators fall through to the normal flow.
+  const showAsyncHostView = asyncWindowOpen && isHost;
 
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
@@ -71,6 +74,8 @@ export function RoomShell({
           <ReplacedNotice />
           {showAsyncVoterView && room ? (
             <AsyncVoterView room={room} />
+          ) : showAsyncHostView && room ? (
+            <AsyncHostMonitorView room={room} slug={slug} />
           ) : stories.length === 0 ? (
             <EmptyState
               slug={slug}
