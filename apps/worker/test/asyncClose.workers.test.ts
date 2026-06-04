@@ -22,6 +22,7 @@ import type {
 import {
   addStory, addVoter, castVote, createRoom, openAsyncWindow,
 } from '../src/operations';
+import { upsertAiSuggestion, type AiPayloadJson } from '../src/ai';
 import { withRoomInstance } from './helpers/pool';
 
 type WebSocket = CfWebSocket;
@@ -261,6 +262,120 @@ describe('S9.i.c3 — close-alarm idempotency', () => {
       // No throws; room still in review; stories still revealed.
       const room2 = sql.exec<{ state: string }>(`SELECT state FROM room LIMIT 1`).toArray()[0];
       expect(room2.state).toBe('review');
+    });
+  });
+});
+
+// ---- AA-1 holds across the async close (S9.i.c4) --------------------------
+
+const FIXTURE_PAYLOAD: AiPayloadJson = {
+  complexity: { level: 'medium', note: 'c' },
+  effort: { level: 'low', note: 'e' },
+  risk: { level: 'low', note: 'r' },
+  unknowns: { level: 'low', note: 'u' },
+  suggestedRange: { low: '3', high: '5' },
+  rationale: 'because',
+};
+
+describe('S9.i.c4 — AA-1 holds across the async-close reveal trigger', () => {
+  // The MUST: the close auto-reveal is a NEW reveal trigger, and the only
+  // invariant we prove is the AA-1 invariant. Voter receives no `ai` on a
+  // story whose suggestion the host privately consulted but did NOT share.
+  it('unshared `ai` stays host-scoped at close: voter\'s votes_revealed has NO ai; host\'s DOES (per-recipient projection holds)', async () => {
+    await withRoomInstance(async (room, state) => {
+      const sql = state.storage.sql;
+      const { closesAt } = seedAsyncRoomActive(sql, { stories: ['st-1'] });
+      sql.exec(
+        `INSERT INTO scheduled_task (id, at, type, payload) VALUES (?, ?, ?, ?)`,
+        't-close', closesAt, 'async_close', JSON.stringify({ closesAt }),
+      );
+
+      // Host privately consulted AI on st-1 → ready, NOT shared.
+      upsertAiSuggestion(sql, {
+        storyId: 'st-1', state: 'ready', payload: FIXTURE_PAYLOAD,
+        requestedAt: NOW + 50, completedAt: NOW + 60, shared: false,
+      });
+
+      // Three votes (consensus + confident) so the bucket itself is uneventful
+      // — the AA-1 question is about the `ai` projection, not the bucket.
+      castVote(sql, { storyId: 'st-1', voterId: VOTER,  points: '5', confidence: 5, now: NOW + 100 });
+      castVote(sql, { storyId: 'st-1', voterId: VOTER2, points: '5', confidence: 5, now: NOW + 101 });
+      castVote(sql, { storyId: 'st-1', voterId: VOTER3, points: '5', confidence: 5, now: NOW + 102 });
+
+      // Both sockets attached: voter is observed; host is the validity anchor
+      // (the same broadcast that strips ai for voter MUST include it for host
+      // — that's the per-recipient projection working, not an absence of data).
+      const voterSock = makeRealSock(state, { voterId: VOTER, role: 'voter' });
+      const hostSock = makeRealSock(state, { voterId: HOST, role: 'host' });
+
+      forceTasksDue(sql);
+      await room.alarm();
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Voter received the reveal (auto-reveal at close); votes/stats land,
+      // but `ai` is absent — the AA-1 key. Stripped via projectChangesFor.
+      const voterChange = findChange(voterSock.received, 'votes_revealed',
+        (c) => c.storyId === 'st-1');
+      expect(voterChange).toBeDefined();
+      expect('ai' in voterChange!).toBe(false);
+      expect(voterChange!.votes).toHaveLength(3);
+
+      // Host received the SAME broadcast with `ai` included — proves the
+      // suggestion was attached at the source and the strip is per-recipient.
+      const hostChange = findChange(hostSock.received, 'votes_revealed',
+        (c) => c.storyId === 'st-1');
+      expect(hostChange).toBeDefined();
+      expect(hostChange!.ai).toBeDefined();
+      expect(hostChange!.ai?.state).toBe('ready');
+    });
+  });
+
+  // VALIDITY (so the no-leak assertion isn't vacuous): the same close-path
+  // observation harness CAN detect ai when the host shares — same logic as
+  // the S8.v capstone's S timeline. Without this, an always-empty assertion
+  // would pass even on a broken projection.
+  it('after SHARE_AI the voter DOES receive the suggestion (AI_SHARED carries the ai) — the observation harness has teeth', async () => {
+    await withRoomInstance(async (room, state) => {
+      const sql = state.storage.sql;
+      const { closesAt } = seedAsyncRoomActive(sql, { stories: ['st-1'] });
+      sql.exec(
+        `INSERT INTO scheduled_task (id, at, type, payload) VALUES (?, ?, ?, ?)`,
+        't-close', closesAt, 'async_close', JSON.stringify({ closesAt }),
+      );
+      upsertAiSuggestion(sql, {
+        storyId: 'st-1', state: 'ready', payload: FIXTURE_PAYLOAD,
+        requestedAt: NOW + 50, completedAt: NOW + 60, shared: false,
+      });
+      castVote(sql, { storyId: 'st-1', voterId: VOTER,  points: '5', confidence: 5, now: NOW + 100 });
+
+      const voterSock = makeRealSock(state, { voterId: VOTER, role: 'voter' });
+      const hostSock = makeRealSock(state, { voterId: HOST, role: 'host' });
+
+      // Close fires; voter sees no ai (re-asserts the no-leak case in this run).
+      forceTasksDue(sql);
+      await room.alarm();
+      await new Promise((r) => setTimeout(r, 10));
+      const voterCloseChange = findChange(voterSock.received, 'votes_revealed',
+        (c) => c.storyId === 'st-1');
+      expect(voterCloseChange).toBeDefined();
+      expect('ai' in voterCloseChange!).toBe(false);
+
+      // Host shares after close (SHARE_AI requires revealed/committed; the
+      // close-alarm just transitioned the story to revealed).
+      await room.webSocketMessage(hostSock.server, JSON.stringify({
+        v: 1, type: 'SHARE_AI', id: 'sh-1', at: 0, payload: { storyId: 'st-1' },
+      }));
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Voter now receives an AI_SHARED envelope carrying the ready suggestion.
+      // This proves the no-leak assertion above is detecting real scoping, not
+      // an always-empty field — the SAME socket DOES see ai when the host
+      // sanctions the crossing.
+      const sharedEnv = voterSock.received.find((e) => e.type === 'AI_SHARED');
+      expect(sharedEnv).toBeDefined();
+      const sharedAi = (sharedEnv!.payload as { ai: { state: string; shared: boolean } }).ai;
+      expect(sharedAi.state).toBe('ready');
+      expect(sharedAi.shared).toBe(true);
     });
   });
 });
