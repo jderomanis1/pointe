@@ -2,17 +2,18 @@ import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
   AddStoryPayload, AiSharedPayload, AISuggestion, CommitStoryPayload, DeltaChange,
   EditStoryPayload, Envelope, ErrorPayload, HostReclaimedPayload, JoinRoomPayload,
-  OpenAsyncPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot,
-  ServerMessageType, ShareAiPayload, SkipStoryPayload, SnapshotStory, SplitStoryPayload,
-  TransferHostPayload, VoteCastPayload, VoterRole,
+  OpenAsyncPayload, OpenDiscussionPayload, OpenVotingPayload, RevealVotesPayload,
+  RoomSnapshot, ServerMessageType, ShareAiPayload, SkipStoryPayload, SnapshotStory,
+  SplitStoryPayload, TransferHostPayload, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
 import {
   PROTOCOL_VERSION, WINDOW_DURATIONS, computeRevealStats, resolveDeck,
 } from '@pointe/shared';
 import {
-  addStory, castVote, commitStory, editStory, insertAuditEvent, openAsyncWindow,
-  openVoting, revealVotes, resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
-  getVoterById, setRoomHost, skipStory, splitStory,
+  addStory, castVote, commitStory, editStory, insertAuditEvent,
+  maybeReturnToReviewAfterCommit, openAsyncWindow, openVoting, revealVotes,
+  resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState, getVoterById,
+  setRoomHost, skipStory, splitStory,
 } from './operations';
 import { getAttachment } from './broadcast';
 import {
@@ -169,6 +170,10 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleRevealVotes(ctx);
     case 'COMMIT_STORY':
       return handleCommitStory(ctx);
+    case 'ACCEPT_AGREED':
+      return handleAcceptAgreed(ctx);
+    case 'OPEN_DISCUSSION':
+      return handleOpenDiscussion(ctx);
     case 'SKIP_STORY':
       return handleSkipStory(ctx);
     case 'SPLIT_STORY':
@@ -416,7 +421,11 @@ function handleRevealVotes(ctx: HandlerCtx): Envelope[] {
   }
 }
 
-/** COMMIT_STORY (host-only) finalises the estimate; closes the loop. */
+/** COMMIT_STORY (host-only) finalises the estimate; closes the loop.
+ *  S9.iii: after the commit, if we were mid live re-vote (room `active`)
+ *  and the queue still has discuss-flagged stories, return room → `review`
+ *  in the same broadcast batch. Otherwise leave room state alone (sync
+ *  rooms; final commit). */
 function handleCommitStory(ctx: HandlerCtx): Envelope[] {
   if (ctx.alreadyProcessed) return [];
   const auth = requireHost(ctx);
@@ -427,13 +436,138 @@ function handleCommitStory(ctx: HandlerCtx): Envelope[] {
   const p = ctx.envelope.payload;
   try {
     commitStory(ctx.sql, { storyId: p.storyId, finalEstimate: p.finalEstimate });
+    const newRoomState = maybeReturnToReviewAfterCommit(ctx.sql);
     ctx.markProcessed();
-    ctx.broadcast([{ kind: 'story_committed', storyId: p.storyId, finalEstimate: p.finalEstimate }]);
+    const changes: DeltaChange[] = [
+      { kind: 'story_committed', storyId: p.storyId, finalEstimate: p.finalEstimate },
+    ];
+    if (newRoomState !== null) {
+      changes.push({ kind: 'room_state_changed', state: newRoomState });
+    }
+    ctx.broadcast(changes);
     return [];
   } catch (err) {
     const code = err instanceof Error ? err.message : 'INTERNAL';
     return [makeError(code, code, false, ctx.envelope.id)];
   }
+}
+
+/**
+ * S9.iii — ACCEPT_AGREED (host-only). Batch-commits every revealed story
+ * whose `needs_discussion` flag is false. Consensus needs no per-story
+ * ceremony — one atomic action.
+ *
+ *   • For each agreed story: compute median (re-derived from persisted
+ *     votes via the shared pure `computeRevealStats` — bit-identical to
+ *     the close alarm's median because the votes are the same), then
+ *     commitStory(...). Stories whose median is null (all non-numeric)
+ *     are SKIPPED — they need host judgement, not auto-commit.
+ *   • Discuss stories (`needs_discussion = true`) untouched — they stay
+ *     in review for the host to walk via OPEN_DISCUSSION.
+ *   • Room stays `review` (discuss stories may remain). The frontend
+ *     handles "review is empty → done" as a derived UI state.
+ *   • Idempotent: re-running picks up zero stories (everything already
+ *     committed); clean no-op, no broadcast.
+ */
+function handleAcceptAgreed(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+
+  const roomRow = ctx.sql.exec<{ deck: string; custom_deck: string | null }>(
+    'SELECT deck, custom_deck FROM room LIMIT 1',
+  ).toArray()[0];
+  if (!roomRow) return [makeError('ROOM_NOT_FOUND', 'Room not found', false, ctx.envelope.id)];
+  const deck = resolveDeck(
+    roomRow.deck as Parameters<typeof resolveDeck>[0],
+    roomRow.custom_deck ? (JSON.parse(roomRow.custom_deck) as string[]) : null,
+  );
+
+  // Eligible stories: revealed AND not flagged. ordered for deterministic broadcast.
+  const eligible = ctx.sql.exec<{ id: string }>(
+    `SELECT id FROM story WHERE state = 'revealed' AND needs_discussion = 0 ORDER BY order_index ASC`,
+  ).toArray();
+
+  const changes: DeltaChange[] = [];
+  for (const { id } of eligible) {
+    const votes = ctx.sql.exec<{
+      story_id: string; voter_id: string; points: string; confidence: number;
+      submitted_at: number; updated_at: number;
+    }>('SELECT * FROM vote WHERE story_id = ?', id).toArray()
+      .map((r) => ({
+        storyId: r.story_id, voterId: r.voter_id, points: r.points,
+        confidence: r.confidence, submittedAt: r.submitted_at, updatedAt: r.updated_at,
+      }));
+    const stats = computeRevealStats(deck, votes);
+    if (stats.median === null) continue; // all non-numeric — host must decide
+    commitStory(ctx.sql, { storyId: id, finalEstimate: stats.median });
+    changes.push({ kind: 'story_committed', storyId: id, finalEstimate: stats.median });
+  }
+
+  ctx.markProcessed();
+  if (changes.length > 0) ctx.broadcast(changes);
+  return [];
+}
+
+/**
+ * S9.iii — OPEN_DISCUSSION (host-only). Re-opens a flagged review story
+ * for a live re-vote. Reuses `openVoting` — which already clears prior
+ * votes (`DELETE FROM vote WHERE story_id = ?`) and sets the story
+ * `active` (with `revealed_at = NULL`). That's the "whoever shows up"
+ * subset rule made real: clearing means the new median is computed from
+ * present voters only at REVEAL_VOTES.
+ *
+ * Adds the room transition `review → active` to the broadcast batch.
+ * Setting the story `active` re-engages the existing anti-anchoring
+ * vote-hiding filter — no new hiding logic, it composes.
+ *
+ * Guards: story must exist, be `revealed`, AND `needs_discussion = 1`.
+ * An unflagged story isn't re-openable through this path (host can use
+ * sync `OPEN_VOTING` for that — it's the legacy re-open path).
+ */
+function handleOpenDiscussion(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isOpenDiscussionPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'OPEN_DISCUSSION payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+
+  // Eligibility: story must be revealed AND flagged.
+  const row = ctx.sql.exec<{ state: string; needs_discussion: number }>(
+    'SELECT state, needs_discussion FROM story WHERE id = ?', p.storyId,
+  ).toArray()[0];
+  if (!row) return [makeError('STORY_NOT_FOUND', 'Story not found', false, ctx.envelope.id)];
+  if (row.state !== 'revealed' || row.needs_discussion !== 1) {
+    return [makeError(
+      'STORY_NOT_DISCUSSABLE',
+      `Story is not a review-flagged story (state=${row.state}, needs_discussion=${row.needs_discussion})`,
+      false, ctx.envelope.id,
+    )];
+  }
+
+  try {
+    openVoting(ctx.sql, { storyId: p.storyId, now: Date.now() });
+    // Room transition: review → active. Only flip if currently review.
+    const roomRow = ctx.sql.exec<{ state: string }>('SELECT state FROM room LIMIT 1').toArray()[0];
+    const flipRoom = roomRow?.state === 'review';
+    if (flipRoom) ctx.sql.exec(`UPDATE room SET state = 'active'`);
+    ctx.markProcessed();
+    const changes: DeltaChange[] = [{ kind: 'voting_opened', storyId: p.storyId }];
+    if (flipRoom) changes.push({ kind: 'room_state_changed', state: 'active' });
+    ctx.broadcast(changes);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+function isOpenDiscussionPayload(p: unknown): p is OpenDiscussionPayload {
+  return !!p && typeof p === 'object'
+    && typeof (p as { storyId?: unknown }).storyId === 'string'
+    && (p as { storyId: string }).storyId.length > 0;
 }
 
 function handleSplitStory(ctx: HandlerCtx): Envelope[] {

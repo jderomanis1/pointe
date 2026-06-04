@@ -1,6 +1,6 @@
 import type { SqlStorage } from '@cloudflare/workers-types';
 import type {
-  AuditEventType, DeckType, Room, RoomMode, Story, Vote, Voter, VoterRole,
+  AuditEventType, DeckType, Room, RoomMode, RoomState, Story, Vote, Voter, VoterRole,
 } from '@pointe/shared';
 import { SPLIT_MAX_CHILDREN, SPLIT_MIN_CHILDREN } from '@pointe/shared';
 
@@ -192,11 +192,61 @@ export function setRoomHost(
     sql.exec(`UPDATE voter SET role = 'voter' WHERE id = ?`, prev);
   }
   sql.exec(`UPDATE voter SET role = 'host' WHERE id = ?`, params.newHostVoterId);
+  // S9.iii — when reclaiming out of `host_vacant`, derive the target from
+  // room contents. The naïve `host_vacant → active` was correct for sync
+  // rooms but wrong for async review-vacancy: a host who left during
+  // `review` should return to `review`, not `active`. Derivation:
+  //   any active story → 'active'  (a round is in progress; resume it)
+  //   else any revealed+needs_discussion → 'review'  (review wasn't done)
+  //   else 'active'                  (default; sync queues, empty rooms)
+  const target = deriveReclaimRoomState(sql);
   sql.exec(
     `UPDATE room SET host_voter_id = ?, host_vacant_since = NULL,
-       state = CASE WHEN state = 'host_vacant' THEN 'active' ELSE state END`,
-    params.newHostVoterId,
+       state = CASE WHEN state = 'host_vacant' THEN ? ELSE state END`,
+    params.newHostVoterId, target,
   );
+}
+
+/**
+ * S9.iii — derive the room state to return to when a host reclaims out of
+ * `host_vacant`. Single source of truth for the reclaim transition; also
+ * reused by `maybeReturnToReviewAfterCommit` to keep the rule in one place.
+ *
+ * The rule is observable, not stored: we look at the stories table. A live
+ * round (`active` story) always wins; otherwise pending discuss flags pull
+ * us into `review`; otherwise default to `active` (sync rooms; empty queues).
+ */
+export function deriveReclaimRoomState(sql: SqlStorage): 'active' | 'review' {
+  const activeCount = sql.exec<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM story WHERE state = 'active'`,
+  ).toArray()[0]?.c ?? 0;
+  if (activeCount > 0) return 'active';
+  const discussCount = sql.exec<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM story WHERE state = 'revealed' AND needs_discussion = 1`,
+  ).toArray()[0]?.c ?? 0;
+  if (discussCount > 0) return 'review';
+  return 'active';
+}
+
+/**
+ * S9.iii — after a COMMIT_STORY succeeds, return the room to `review` IFF
+ * we were in `active` (mid live re-vote), no other story is `active`, and
+ * at least one discuss story remains. Otherwise leave room state alone.
+ * Pure: returns the new state if a transition occurred, else null.
+ */
+export function maybeReturnToReviewAfterCommit(sql: SqlStorage): RoomState | null {
+  const roomRow = sql.exec<{ state: string }>('SELECT state FROM room LIMIT 1').toArray()[0];
+  if (!roomRow || roomRow.state !== 'active') return null;
+  const stillActive = sql.exec<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM story WHERE state = 'active'`,
+  ).toArray()[0]?.c ?? 0;
+  if (stillActive > 0) return null;
+  const stillDiscuss = sql.exec<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM story WHERE state = 'revealed' AND needs_discussion = 1`,
+  ).toArray()[0]?.c ?? 0;
+  if (stillDiscuss === 0) return null;
+  sql.exec(`UPDATE room SET state = 'review'`);
+  return 'review';
 }
 
 /** R2.iv: set a voter's connection_state (no-op if voter missing). */

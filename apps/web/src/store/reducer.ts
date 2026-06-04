@@ -347,6 +347,15 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
         room: { ...state.room, state: 'review' },
       };
 
+    case 'room_state_changed':
+      // S9.iii — review → active on OPEN_DISCUSSION; active → review on
+      // COMMIT_STORY of a re-opened discuss story (when others remain).
+      if (!state.room) return state;
+      return {
+        ...state,
+        room: { ...state.room, state: change.state },
+      };
+
     default: {
       // Compile-time check: adding a new DeltaChange kind without handling it fails typecheck.
       const _exhaustive: never = change;
