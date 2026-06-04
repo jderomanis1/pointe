@@ -37,6 +37,7 @@ export function useRoomClient(args: UseRoomClientArgs): RoomClientApi {
         applyServerDelta: (p) => useRoomStore.getState().applyServerDelta(p),
         applyHostVacant: (p) => useRoomStore.getState().applyHostVacant(p),
         applyHostReclaimed: (p) => useRoomStore.getState().applyHostReclaimed(p),
+        applyAiShared: (p) => useRoomStore.getState().applyAiShared(p),
         setConnection: (s) => useRoomStore.getState().setConnection(s),
       },
       onError: args.onError,

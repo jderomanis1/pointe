@@ -34,10 +34,12 @@ function makeStoreSpy() {
     statuses: [] as ConnectionStatus[],
     vacants: [] as { vacantSince: number }[],
     reclaimeds: [] as { newHostVoterId: string; via: 'reconnect' | 'claim' | 'transfer' }[],
+    aiShareds: [] as { storyId: string; ai: unknown }[],
     hydrate(s: RoomSnapshot) { this.snapshots.push(s); },
     applyServerDelta(p: DeltaPayload) { this.deltas.push(p); },
     applyHostVacant(p: { vacantSince: number }) { this.vacants.push(p); },
     applyHostReclaimed(p: { newHostVoterId: string; via: 'reconnect' | 'claim' | 'transfer' }) { this.reclaimeds.push(p); },
+    applyAiShared(p: { storyId: string; ai: unknown }) { this.aiShareds.push(p); },
     setConnection(s: ConnectionStatus) { this.statuses.push(s); },
   };
 }
@@ -256,5 +258,34 @@ describe('RoomWsClient — keepalive', () => {
     vi.advanceTimersByTime(1000);
     const pingTypes = wsInstances[0].sent.map((s) => (JSON.parse(s) as Envelope).type);
     expect(pingTypes).toContain('RECONNECT_PING');
+  });
+});
+
+describe('RoomWsClient — AI_SHARED dispatch', () => {
+  it('routes an AI_SHARED envelope to store.applyAiShared with the storyId + ai payload', () => {
+    const store = makeStoreSpy();
+    new RoomWsClient({
+      wsUrl: 'ws://test', join: JOIN, store, webSocketFactory: factory,
+    });
+    wsInstances[0].fireOpen();
+    wsInstances[0].fireMessage(makeSnapshotEnv());
+    expect(store.aiShareds).toEqual([]);
+
+    const ai = {
+      state: 'ready',
+      complexity: { level: 'medium', note: 'c' },
+      effort: { level: 'low', note: 'e' },
+      risk: { level: 'low', note: 'r' },
+      unknowns: { level: 'low', note: 'u' },
+      suggestedRange: { low: '3', high: '5' },
+      rationale: 'because',
+      shared: true,
+    };
+    const env: Envelope = {
+      v: 1, type: 'AI_SHARED', id: 'srv-ai', at: 0,
+      payload: { storyId: 's-1', ai },
+    };
+    wsInstances[0].fireMessage(JSON.stringify(env));
+    expect(store.aiShareds).toEqual([{ storyId: 's-1', ai }]);
   });
 });
