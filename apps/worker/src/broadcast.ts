@@ -98,6 +98,11 @@ export function projectChangesFor(
       case 'story_skipped':
       case 'story_split':
         return [change];
+      // S9.i — async lifecycle is public by design (the window opens and
+      // closes for everyone in the room; voters need to know).
+      case 'async_window_opened':
+      case 'async_window_closed':
+        return [change];
       default: {
         // Unknown future kind — drop defensively so accidental new payloads can't auto-leak.
         const _exhaustive: never = change;

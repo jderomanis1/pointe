@@ -797,16 +797,20 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
   // voter.role can lag in edge cases the snapshot serves through.
   const isHost = state.room.hostVoterId !== null && voterId === state.room.hostVoterId;
 
-  const active = state.stories.find((s) => s.state === 'active');
+  // S9.i: filter, not find. Sync mode has at most one active story (enforced
+  // by openVoting's ANOTHER_STORY_ACTIVE check); async mode flips the whole
+  // queue active when OPEN_ASYNC arms the window. Vote-hiding is per-story:
+  // every active story gets `votes: []`, regardless of count.
+  const active = state.stories.filter((s) => s.state === 'active');
   const revealed = state.stories
     .filter((s) => s.state === 'revealed' || s.state === 'committed')
     .sort((a, b) => (a.revealedAt ?? 0) - (b.revealedAt ?? 0))
     .slice(-REVEALED_HISTORY_LIMIT);
 
   const snapStories: SnapshotStory[] = [];
-  if (active) {
-    // Anti-anchoring: active story carries NO votes.
-    snapStories.push(withAiProjection(sql, { ...active, votes: [] }, isHost));
+  for (const story of active) {
+    // Anti-anchoring: active stories carry NO votes (each independently).
+    snapStories.push(withAiProjection(sql, { ...story, votes: [] }, isHost));
   }
   for (const story of revealed) {
     snapStories.push(withAiProjection(

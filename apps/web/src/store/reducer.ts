@@ -257,9 +257,14 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
     case 'votes_revealed':
       return {
         ...state,
-        stories: state.stories.map((s) =>
-          s.id === change.storyId ? { ...s, state: 'revealed' } : s,
-        ),
+        stories: state.stories.map((s) => {
+          if (s.id !== change.storyId) return s;
+          // S9.i: copy server-truth bucket flag onto the story when set
+          // (async close); leave story.needsDiscussion alone otherwise.
+          const next = { ...s, state: 'revealed' as const };
+          if (change.needsDiscussion !== undefined) next.needsDiscussion = change.needsDiscussion;
+          return next;
+        }),
         revealed: {
           ...state.revealed,
           [change.storyId]: { votes: change.votes, stats: change.stats },
@@ -311,6 +316,35 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
         stories: state.stories.map((s) =>
           s.id === change.storyId ? { ...s, ai: change.ai } : s,
         ),
+      };
+
+    case 'async_window_opened': {
+      // S9.i.c2 — the host opened the async window. Stamp the window on the
+      // room and flip every listed story to active. Unlike `voting_opened`,
+      // this does NOT mirror-out other active stories — async is many-at-once.
+      if (!state.room) return state;
+      const ids = new Set(change.storyIds);
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          state: 'active',
+          asyncWindow: { opensAt: change.opensAt, closesAt: change.closesAt },
+        },
+        stories: state.stories.map((s) =>
+          ids.has(s.id) ? { ...s, state: 'active' } : s,
+        ),
+      };
+    }
+
+    case 'async_window_closed':
+      // S9.i.c3 — close alarm fired. Room transitions to review; the
+      // accompanying per-story `votes_revealed` changes (in the same DELTA
+      // batch) carry votes + stats + needsDiscussion per story.
+      if (!state.room) return state;
+      return {
+        ...state,
+        room: { ...state.room, state: 'review' },
       };
 
     default: {

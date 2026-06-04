@@ -10,7 +10,7 @@ export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; vot
 // SQLite row shapes (snake_case mirrors of the spec entities).
 type RoomRow = { id: string; slug: string; deck: string; custom_deck: string | null; mode: string; async_window: string | null; state: string; host_voter_id: string | null; host_vacant_since: number | null; created_at: number; last_activity_at: number };
 type VoterRow = { id: string; display_name: string; role: string; connection_state: string; last_seen_at: number; joined_at: number };
-type StoryRow = { id: string; order_index: number; text: string; external_id: string | null; external_url: string | null; description: string | null; state: string; final_estimate: string | null; edited: number; split_parent_id: string | null; created_at: number; opened_at: number | null; revealed_at: number | null };
+type StoryRow = { id: string; order_index: number; text: string; external_id: string | null; external_url: string | null; description: string | null; state: string; final_estimate: string | null; edited: number; split_parent_id: string | null; created_at: number; opened_at: number | null; revealed_at: number | null; needs_discussion: number };
 type VoteRow = { story_id: string; voter_id: string; points: string; confidence: number; submitted_at: number; updated_at: number };
 
 /** Create the singleton room row and insert the host voter. */
@@ -257,6 +257,9 @@ function mapStoryRow(s: StoryRow, roomId: string): Story {
     createdAt: s.created_at,
     openedAt: s.opened_at ?? undefined,
     revealedAt: s.revealed_at ?? undefined,
+    // S9.i: only emit when truthy — sync-mode revealed stories have it unset,
+    // and absence is the wire signal (no async bucket applies).
+    ...(s.needs_discussion === 1 ? { needsDiscussion: true } : {}),
   };
 }
 
