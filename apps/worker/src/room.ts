@@ -14,7 +14,7 @@ import {
 } from './operations';
 import { handleMessage, type AiOrchestrator } from './dispatcher';
 import { broadcast, broadcastEnvelope, getAttachment } from './broadcast';
-import { RL_WS_PER_MIN } from './rateLimit';
+import { checkWsHandshakeRate } from './rateLimit';
 import {
   cancelTasksByType, runDueTasks, scheduleTask, type ScheduledTask,
 } from './scheduler';
@@ -440,28 +440,22 @@ export class Room {
    */
   private checkWsHandshakeRate(request: Request): { limited: Response | null } {
     const ip = request.headers.get('X-Client-IP') ?? 'unknown';
-    const now = Date.now();
-    const windowStart = Math.floor(now / 60_000) * 60_000;
-    this.sql.exec('DELETE FROM ws_handshake_rate WHERE window_start < ?', windowStart);
-    const result = this.sql.exec<{ count: number }>(
-      `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, 1)
-       ON CONFLICT(ip, window_start) DO UPDATE SET count = count + 1
-       RETURNING count`,
-      ip, windowStart,
-    ).one();
-    if (result.count > RL_WS_PER_MIN) {
-      const body = {
-        code: 'RATE_LIMITED',
-        message: 'WebSocket handshake rate exceeded for this IP in this room.',
-      };
-      return {
-        limited: new Response(JSON.stringify(body), {
-          status: 429,
-          headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
-        }),
-      };
-    }
-    return { limited: null };
+    // S9 fix: delegate to the pure rateLimit helper with a real-clock `now`.
+    // Tests bypass this wrapper entirely and call the helper directly with a
+    // deterministic `now` — that's how the trip-at-31 assertion becomes
+    // independent of where in the wall-clock minute the burst runs.
+    const result = checkWsHandshakeRate(this.sql, { ip, now: Date.now() });
+    if (!result.tripped) return { limited: null };
+    const body = {
+      code: 'RATE_LIMITED',
+      message: 'WebSocket handshake rate exceeded for this IP in this room.',
+    };
+    return {
+      limited: new Response(JSON.stringify(body), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+      }),
+    };
   }
 
   /** Mark the voter `left` and emit a `voter_left` delta to peers. Never throws. */

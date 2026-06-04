@@ -1,4 +1,4 @@
-import type { KVNamespace } from '@cloudflare/workers-types';
+import type { KVNamespace, SqlStorage } from '@cloudflare/workers-types';
 
 /**
  * SI-06 rate-limit helper. One uniform mechanism for all three external
@@ -48,4 +48,40 @@ export async function checkWindowedIpLimit(
   const ttl = Math.max(60, Math.ceil(windowMs / 1000) * 2);
   await kv.put(key, String(current + 1), { expirationTtl: ttl });
   return true;
+}
+
+/**
+ * S9 fix — extract the SI-06 WS-handshake counter into a pure function with
+ * `now` threaded in. The DO's `checkWsHandshakeRate` wraps this with
+ * `Date.now()` in production; tests invoke it directly with a controlled
+ * `now` through `runInDurableObject` to assert the trip-at-31 truth without
+ * a wall-clock dependency.
+ *
+ * Production shape is unchanged: stale rows (`window_start < currentWindow`)
+ * are deleted, then an atomic upsert-returning bumps the current-bucket
+ * count by 1 and reads the new value in one statement. The same shape the
+ * S7 saga proved out — RETURNING is the only counter pattern that avoids
+ * the real-DO `.one()` zero-row throw.
+ *
+ * Returns the post-increment `count` and the trip decision. The caller
+ * shapes the HTTP response (status + Retry-After + body).
+ */
+export function checkWsHandshakeRate(
+  sql: SqlStorage,
+  params: { ip: string; now: number; limit?: number },
+): { count: number; tripped: boolean; windowStart: number } {
+  const limit = params.limit ?? RL_WS_PER_MIN;
+  const windowStart = Math.floor(params.now / MINUTE_MS) * MINUTE_MS;
+  sql.exec('DELETE FROM ws_handshake_rate WHERE window_start < ?', windowStart);
+  const result = sql.exec<{ count: number }>(
+    `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, 1)
+     ON CONFLICT(ip, window_start) DO UPDATE SET count = count + 1
+     RETURNING count`,
+    params.ip, windowStart,
+  ).one();
+  return {
+    count: result.count,
+    tripped: result.count > limit,
+    windowStart,
+  };
 }
