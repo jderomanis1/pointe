@@ -10,7 +10,7 @@ export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; vot
 // SQLite row shapes (snake_case mirrors of the spec entities).
 type RoomRow = { id: string; slug: string; deck: string; custom_deck: string | null; mode: string; async_window: string | null; state: string; host_voter_id: string | null; host_vacant_since: number | null; created_at: number; last_activity_at: number };
 type VoterRow = { id: string; display_name: string; role: string; connection_state: string; last_seen_at: number; joined_at: number };
-type StoryRow = { id: string; order_index: number; text: string; external_id: string | null; external_url: string | null; description: string | null; state: string; final_estimate: string | null; edited: number; split_parent_id: string | null; created_at: number; opened_at: number | null; revealed_at: number | null };
+type StoryRow = { id: string; order_index: number; text: string; external_id: string | null; external_url: string | null; description: string | null; state: string; final_estimate: string | null; edited: number; split_parent_id: string | null; created_at: number; opened_at: number | null; revealed_at: number | null; needs_discussion: number };
 type VoteRow = { story_id: string; voter_id: string; points: string; confidence: number; submitted_at: number; updated_at: number };
 
 /** Create the singleton room row and insert the host voter. */
@@ -257,6 +257,9 @@ function mapStoryRow(s: StoryRow, roomId: string): Story {
     createdAt: s.created_at,
     openedAt: s.opened_at ?? undefined,
     revealedAt: s.revealed_at ?? undefined,
+    // S9.i: only emit when truthy — sync-mode revealed stories have it unset,
+    // and absence is the wire signal (no async bucket applies).
+    ...(s.needs_discussion === 1 ? { needsDiscussion: true } : {}),
   };
 }
 
@@ -354,6 +357,121 @@ function getRoomId(sql: SqlStorage): string {
  *   - `prevRevealedAt` carries the previous round's reveal timestamp on
  *     re-open so the audit can record when the round actually closed.
  */
+/**
+ * S9.i.c2 — open the async voting window. Flips every `pending` story to
+ * `active` at once (the reuse-`active` decision; per-story vote machinery is
+ * indifferent to count). Stamps `room.async_window` and transitions
+ * `room.state` → `'active'`. Returns the activated storyIds + `closesAt` so
+ * the dispatcher can arm the close alarm and broadcast the open event.
+ *
+ * Bypasses `openVoting`'s single-active check by design: that check is the
+ * sync-mode product invariant; async mode is many-at-once.
+ *
+ * Throws:
+ *   ROOM_NOT_ASYNC        — mode !== 'async'.
+ *   ASYNC_ALREADY_OPENED  — async_window already populated.
+ *   NO_PENDING_STORIES    — nothing to activate.
+ */
+export function openAsyncWindow(
+  sql: SqlStorage,
+  params: { opensAt: number; closesAt: number },
+): { storyIds: string[]; opensAt: number; closesAt: number } {
+  const roomRow = sql.exec<{ mode: string; async_window: string | null; state: string }>(
+    'SELECT mode, async_window, state FROM room LIMIT 1',
+  ).toArray()[0];
+  if (!roomRow) throw new Error('ROOM_NOT_FOUND');
+  if (roomRow.mode !== 'async') throw new Error('ROOM_NOT_ASYNC');
+  if (roomRow.async_window !== null) throw new Error('ASYNC_ALREADY_OPENED');
+
+  const pending = sql.exec<{ id: string }>(
+    `SELECT id FROM story WHERE state = 'pending' ORDER BY order_index ASC`,
+  ).toArray();
+  if (pending.length === 0) throw new Error('NO_PENDING_STORIES');
+
+  sql.exec(
+    `UPDATE story SET state = 'active', opened_at = ? WHERE state = 'pending'`,
+    params.opensAt,
+  );
+  sql.exec(
+    `UPDATE room SET async_window = ?, state = 'active', last_activity_at = ?`,
+    JSON.stringify({ opensAt: params.opensAt, closesAt: params.closesAt }),
+    params.opensAt,
+  );
+  return {
+    storyIds: pending.map((p) => p.id),
+    opensAt: params.opensAt,
+    closesAt: params.closesAt,
+  };
+}
+
+/**
+ * S9.i.c3 — close the async voting window. Reveals every active story
+ * (transition → `revealed`, stamp `revealed_at`), computes per-story stats,
+ * sets the bucket flag (outlier OR low-confidence → discuss), and
+ * transitions the room to `'review'`. Pure side effects in SQL; the close
+ * alarm broadcasts the changes.
+ *
+ * Returns each story's reveal payload so the alarm can pack a single DELTA
+ * with `votes_revealed × N` + `async_window_closed`.
+ *
+ * Idempotent on re-fire (re-running on a room already in `'review'`
+ * returns an empty batch — the alarm handler is required to be
+ * idempotent; see scheduler.ts).
+ */
+export function closeAsyncWindow(
+  sql: SqlStorage,
+  params: { now: number },
+): {
+  closedAt: number;
+  results: { storyId: string; votes: Vote[] }[];
+} {
+  const roomRow = sql.exec<{ state: string; mode: string }>(
+    'SELECT state, mode FROM room LIMIT 1',
+  ).toArray()[0];
+  if (!roomRow) throw new Error('ROOM_NOT_FOUND');
+  // Already-closed → no-op (idempotency contract for alarm handlers).
+  if (roomRow.state === 'review' || roomRow.state === 'closing' || roomRow.state === 'archived') {
+    return { closedAt: params.now, results: [] };
+  }
+
+  const active = sql.exec<{ id: string }>(
+    `SELECT id FROM story WHERE state = 'active' ORDER BY order_index ASC`,
+  ).toArray();
+
+  const results: { storyId: string; votes: Vote[] }[] = [];
+  for (const { id } of active) {
+    const votes = sql.exec<VoteRow>(
+      'SELECT * FROM vote WHERE story_id = ? ORDER BY submitted_at ASC', id,
+    ).toArray().map(mapVoteRow);
+    sql.exec(
+      `UPDATE story SET state = 'revealed', revealed_at = ? WHERE id = ?`,
+      params.now, id,
+    );
+    results.push({ storyId: id, votes });
+  }
+  sql.exec(
+    `UPDATE room SET state = 'review', last_activity_at = ? WHERE 1`,
+    params.now,
+  );
+  return { closedAt: params.now, results };
+}
+
+/**
+ * S9.i.c3 — persist the server-truth bucket flag for a story after the
+ * close-alarm bucketing decision. Separate from `closeAsyncWindow` so the
+ * stats computation (pure) and the persistence (SQL) stay decoupled.
+ */
+export function setStoryNeedsDiscussion(
+  sql: SqlStorage,
+  params: { storyId: string; needsDiscussion: boolean },
+): void {
+  sql.exec(
+    `UPDATE story SET needs_discussion = ? WHERE id = ?`,
+    params.needsDiscussion ? 1 : 0,
+    params.storyId,
+  );
+}
+
 export function openVoting(
   sql: SqlStorage,
   params: { storyId: string; now: number },

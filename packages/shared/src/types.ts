@@ -9,7 +9,15 @@
 
 export type DeckType = 'fibonacci' | 'modFibonacci' | 'tshirt' | 'powers2' | 'custom';
 export type RoomMode = 'sync' | 'async';
-export type RoomState = 'lobby' | 'active' | 'host_vacant' | 'closing' | 'archived';
+export type RoomState =
+  | 'lobby'
+  | 'active'
+  | 'host_vacant'
+  | 'closing'
+  | 'archived'
+  /** S9.i — async window closed; the room is showing bucketed results
+   *  (auto-accepted vs needs-discussion). Set by the async_close alarm. */
+  | 'review';
 export type StoryState = 'pending' | 'active' | 'revealed' | 'committed' | 'skipped' | 'split';
 export type VoterRole = 'voter' | 'spectator' | 'host';
 export type ConnectionState = 'connected' | 'reconnecting' | 'left';
@@ -82,6 +90,13 @@ export type Story = {
    * identical to one where AI was never requested.
    */
   ai?: AISuggestion;
+  /**
+   * S9.i — async-close bucket. True iff the close alarm tagged the story as
+   * "needs discussion" (outlier OR low-confidence, per OQ-016). Absent on
+   * sync-mode reveals and on unrevealed stories — only the close alarm sets
+   * it. Server-truth: client renders from this, never recomputes.
+   */
+  needsDiscussion?: boolean;
 };
 
 export type Voter = {
@@ -177,9 +192,9 @@ export const PROTOCOL_VERSION = 1;
 
 export type ClientMessageType =
   | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
-  | 'SKIP_STORY' | 'OPEN_VOTING' | 'VOTE_CAST' | 'REVEAL_VOTES' | 'COMMIT_STORY'
-  | 'REQUEST_AI' | 'SHARE_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
-  | 'CLAIM_HOST' | 'TRANSFER_HOST';
+  | 'SKIP_STORY' | 'OPEN_VOTING' | 'OPEN_ASYNC' | 'VOTE_CAST' | 'REVEAL_VOTES'
+  | 'COMMIT_STORY' | 'REQUEST_AI' | 'SHARE_AI' | 'RECONNECT_PING'
+  | 'KICK_VOTER' | 'CLOSE_ROOM' | 'CLAIM_HOST' | 'TRANSFER_HOST';
 
 export type ServerMessageType =
   | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
@@ -304,10 +319,35 @@ export type DeltaChange =
        * Absence is the AA-1 signal — present-as-null would still leak.
        */
       ai?: AISuggestion;
+      /**
+       * S9.i — async-close bucket flag. Set by the close alarm only;
+       * undefined on sync reveals (no bucketing in sync mode).
+       */
+      needsDiscussion?: boolean;
     }
   | { kind: 'story_committed'; storyId: string; finalEstimate: string }
   | { kind: 'story_skipped'; storyId: string }
   | { kind: 'story_split'; parentId: string; children: Story[] }
+  /**
+   * S9.i.c2 — async voting window opened. All listed stories transition to
+   * `active` (without the single-active mirror that `voting_opened` enforces
+   * in sync mode). Room transitions to `state='active'`. Broadcast to all.
+   */
+  | {
+      kind: 'async_window_opened';
+      opensAt: number;
+      closesAt: number;
+      storyIds: string[];
+    }
+  /**
+   * S9.i.c3 — async voting window closed (auto-reveal fired). Room transitions
+   * to `state='review'`. The per-story `votes_revealed` changes carrying votes +
+   * stats + needsDiscussion accompany this in the same DELTA batch.
+   */
+  | {
+      kind: 'async_window_closed';
+      closedAt: number;
+    }
   /**
    * S8.iii.c1 — host-only AI content delivery.
    *
@@ -373,3 +413,23 @@ export type SplitStoryPayload = {
 };
 export const SPLIT_MIN_CHILDREN = 2;
 export const SPLIT_MAX_CHILDREN = 8;
+
+// ---- S9.i: async window ----------------------------------------------------
+
+/**
+ * Closed set of host-selectable async window durations. Locked decision —
+ * voters can't pick custom durations (host control, no fractional units).
+ * Map values are milliseconds.
+ */
+export const WINDOW_DURATIONS = {
+  '4h':  4 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '3d':  3 * 24 * 60 * 60 * 1000,
+} as const;
+
+export type AsyncWindowDuration = keyof typeof WINDOW_DURATIONS;
+
+/** S9.i — OPEN_ASYNC: host opens the async voting window on a queue of
+ *  pending stories. Host-only (SI-02); rejected if mode !== 'async', window
+ *  already open, or no pending stories. */
+export type OpenAsyncPayload = { window: AsyncWindowDuration };

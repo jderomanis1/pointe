@@ -37,9 +37,12 @@ export function initSchema(sql: SqlStorage): void {
     split_parent_id TEXT,
     created_at      INTEGER NOT NULL,
     opened_at       INTEGER,
-    revealed_at     INTEGER
+    revealed_at     INTEGER,
+    needs_discussion INTEGER NOT NULL DEFAULT 0
   )`);
   sql.exec(`CREATE INDEX IF NOT EXISTS idx_story_order ON story(order_index)`);
+  // S9.i.c1 — idempotent migration for DOs created before this deploy.
+  migrateStoryNeedsDiscussion(sql);
 
   sql.exec(`CREATE TABLE IF NOT EXISTS voter (
     id               TEXT PRIMARY KEY,
@@ -142,5 +145,21 @@ function migrateAiSuggestionShared(sql: SqlStorage): void {
   }
   if (!cols.includes('shared_at')) {
     sql.exec(`ALTER TABLE ai_suggestion ADD COLUMN shared_at INTEGER`);
+  }
+}
+
+/**
+ * S9.i.c1 idempotent migration: add `needs_discussion` to existing `story`
+ * tables. Persisted server-truth for the async-close bucket (outlier OR
+ * low-confidence → discuss; per OQ-016). Fresh DOs get it from CREATE TABLE;
+ * older DOs gain it here. PRAGMA-guarded → safe on every init.
+ */
+function migrateStoryNeedsDiscussion(sql: SqlStorage): void {
+  const cols = sql
+    .exec<{ name: string }>(`PRAGMA table_info(story)`)
+    .toArray()
+    .map((r) => r.name);
+  if (!cols.includes('needs_discussion')) {
+    sql.exec(`ALTER TABLE story ADD COLUMN needs_discussion INTEGER NOT NULL DEFAULT 0`);
   }
 }

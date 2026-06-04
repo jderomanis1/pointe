@@ -3,12 +3,14 @@ import type {
   AISuggestion, DeckType, DeltaChange, Envelope, HostVacantPayload, RoomMode,
   ServerMessageType, StoryAiFailedPayload, StoryAiReadyPayload,
 } from '@pointe/shared';
-import { PROTOCOL_VERSION } from '@pointe/shared';
+import {
+  PROTOCOL_VERSION, computeRevealStats, resolveDeck, storyNeedsDiscussion,
+} from '@pointe/shared';
 import type { Env } from './worker';
 import { initSchema } from './schema';
 import {
-  createRoom, getHostVoterId, getRoomLifecycle, getRoomState,
-  markRoomHostVacant, setVoterConnection,
+  closeAsyncWindow, createRoom, getHostVoterId, getRoomLifecycle, getRoomState,
+  markRoomHostVacant, setStoryNeedsDiscussion, setVoterConnection,
 } from './operations';
 import { handleMessage, type AiOrchestrator } from './dispatcher';
 import { broadcast, broadcastEnvelope, getAttachment } from './broadcast';
@@ -16,7 +18,9 @@ import { RL_WS_PER_MIN } from './rateLimit';
 import {
   cancelTasksByType, runDueTasks, scheduleTask, type ScheduledTask,
 } from './scheduler';
-import { putAiCache, requestCeruSuggestion, upsertAiSuggestion } from './ai';
+import {
+  getAiSuggestion, putAiCache, requestCeruSuggestion, upsertAiSuggestion,
+} from './ai';
 
 /** Grace window between host-disconnect and the host_vacant transition. */
 export const HOST_VACANT_GRACE_MS = 30_000;
@@ -138,6 +142,12 @@ export class Room {
       // S8.ii.b: REQUEST_AI orchestration. The dispatcher's handler runs
       // sync (cache check, rate check, accept); the API call happens here.
       this.aiOrchestrator(),
+      // S9.i.c2: OPEN_ASYNC arms the close alarm. Fire-and-forget — the
+      // alarm is in place in milliseconds; the scheduler multiplexes via
+      // MIN(at) so any pending host_vacant alarm is preserved.
+      (closesAt) => {
+        void scheduleTask(this.ctx.storage, 'async_close', closesAt, { closesAt });
+      },
     );
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
@@ -300,6 +310,10 @@ export class Room {
         this.handleHostVacantFire(task.payload as HostVacantTaskPayload | null);
         break;
       }
+      case 'async_close': {
+        this.handleAsyncCloseFire();
+        break;
+      }
       default:
         console.warn(`scheduler: unknown task type "${task.type}" (id=${task.id})`);
         break;
@@ -329,6 +343,54 @@ export class Room {
     markRoomHostVacant(this.sql, { vacantSince: payload.disconnectedAt });
     const message: HostVacantPayload = { vacantSince: payload.disconnectedAt };
     broadcastEnvelope(this.ctx, 'HOST_VACANT', message);
+  }
+
+  /**
+   * S9.i.c3 — the async_close alarm fired. Reveal every active story (batch),
+   * compute stats, tag each story's bucket via `storyNeedsDiscussion`, persist
+   * the flag, broadcast a single DELTA with all `votes_revealed` changes + a
+   * trailing `async_window_closed`. Room transitions to `'review'`.
+   *
+   * AA-1 unchanged: each `votes_revealed` carries the (optional) AI suggestion
+   * which `projectChangesFor` strips for non-hosts unless `shared`. So in
+   * async exactly as in sync, the host's reveal carries AI and the voter's
+   * doesn't — until the host explicitly SHARE_AIs after close.
+   *
+   * Idempotent: `closeAsyncWindow` returns an empty batch if the room is
+   * already in a closed-ish state; the broadcast becomes a no-op.
+   */
+  private handleAsyncCloseFire(): void {
+    const now = Date.now();
+    const close = closeAsyncWindow(this.sql, { now });
+    if (close.results.length === 0) return; // already closed; idempotent no-op
+
+    const roomRow = this.sql
+      .exec<{ deck: string; custom_deck: string | null }>(
+        'SELECT deck, custom_deck FROM room LIMIT 1',
+      ).toArray()[0];
+    const deck = roomRow
+      ? resolveDeck(
+          roomRow.deck as Parameters<typeof resolveDeck>[0],
+          roomRow.custom_deck ? (JSON.parse(roomRow.custom_deck) as string[]) : null,
+        )
+      : [];
+
+    const changes: DeltaChange[] = [];
+    for (const r of close.results) {
+      const stats = computeRevealStats(deck, r.votes);
+      const needsDiscussion = storyNeedsDiscussion(stats);
+      setStoryNeedsDiscussion(this.sql, { storyId: r.storyId, needsDiscussion });
+      // AA-1: attach the AI suggestion (any state) so the host's per-recipient
+      // projection lets it through. projectChangesFor strips it for non-hosts.
+      const suggestion = getAiSuggestion(this.sql, r.storyId);
+      const change: Extract<DeltaChange, { kind: 'votes_revealed' }> = suggestion
+        ? { kind: 'votes_revealed', storyId: r.storyId, votes: r.votes, stats, needsDiscussion, ai: suggestion }
+        : { kind: 'votes_revealed', storyId: r.storyId, votes: r.votes, stats, needsDiscussion };
+      changes.push(change);
+    }
+    changes.push({ kind: 'async_window_closed', closedAt: close.closedAt });
+
+    broadcast(this.ctx, changes, getHostVoterId(this.sql));
   }
 
   /** True iff any non-closing attached socket is bound to `hostVoterId`. */
