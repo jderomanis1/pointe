@@ -76,3 +76,68 @@ describe('S9.i.c1 — story.needs_discussion column', () => {
     });
   });
 });
+
+// ---- S9.ii.c1 — GetRoomResponse echoes mode + closesAt --------------------
+
+describe('S9.ii.c1 — getRoomState carries mode + asyncWindow.closesAt for the GET projection', () => {
+  it('sync room: mode=sync, asyncWindow undefined → endpoint projects closesAt:null', () => {
+    return withRoom((sql) => {
+      createRoom(sql, {
+        roomId: 'r-1', slug: 'apt-sparrow-16', hostVoterId: 'h-1',
+        hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'sync', now: NOW,
+      });
+      const { room } = getRoomState(sql);
+      // The worker endpoint's projection (mirrors apps/worker/src/worker.ts:184-191):
+      const wireResponse = {
+        state: room.state,
+        deck: room.deck,
+        mode: room.mode,
+        closesAt: room.asyncWindow?.closesAt ?? null,
+      };
+      expect(wireResponse).toEqual({
+        state: 'lobby', deck: 'fibonacci', mode: 'sync', closesAt: null,
+      });
+    });
+  });
+
+  it('async room, window unopened: mode=async, closesAt:null (window not stamped until OPEN_ASYNC)', () => {
+    return withRoom((sql) => {
+      createRoom(sql, {
+        roomId: 'r-1', slug: 'apt-sparrow-16', hostVoterId: 'h-1',
+        hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'async', now: NOW,
+      });
+      const { room } = getRoomState(sql);
+      expect(room.mode).toBe('async');
+      expect(room.asyncWindow).toBeUndefined();
+      // Endpoint projection still returns mode + closesAt:null for pre-open framing.
+      expect(room.asyncWindow?.closesAt ?? null).toBeNull();
+    });
+  });
+
+  it('async room with window opened: closesAt projects the stamped value (the pre-join countdown anchor)', async () => {
+    const { openAsyncWindow } = await import('../src/operations');
+    return withRoom((sql) => {
+      createRoom(sql, {
+        roomId: 'r-1', slug: 'apt-sparrow-16', hostVoterId: 'h-1',
+        hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'async', now: NOW,
+      });
+      addStory(sql, { storyId: 'st-1', text: 't', now: NOW });
+      const opensAt = NOW + 100;
+      const closesAt = opensAt + 4 * 60 * 60 * 1000;
+      openAsyncWindow(sql, { opensAt, closesAt });
+      const { room } = getRoomState(sql);
+      expect(room.mode).toBe('async');
+      expect(room.asyncWindow?.closesAt).toBe(closesAt);
+      // The projection used by the GET endpoint:
+      expect({
+        state: room.state, deck: room.deck, mode: room.mode,
+        closesAt: room.asyncWindow?.closesAt ?? null,
+      }).toEqual({
+        state: 'active', // OPEN_ASYNC transitions room to active
+        deck: 'fibonacci',
+        mode: 'async',
+        closesAt,
+      });
+    });
+  });
+});

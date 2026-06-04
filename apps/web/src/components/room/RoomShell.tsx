@@ -9,6 +9,9 @@ import { ShareLink } from './EmptyState';
 import { VotingStage } from './VotingStage';
 import { HostVacantBanner } from './HostVacantBanner';
 import { ReplacedNotice } from './ReplacedNotice';
+import { AsyncOpenPanel } from './AsyncOpenPanel';
+import { AsyncVoterView } from './AsyncVoterView';
+import { AsyncHostMonitorView } from './AsyncHostMonitorView';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -38,6 +41,17 @@ export function RoomShell({
   // R5.v's COMMIT_STORY moves a revealed story to 'committed' → the queue takes over again.
   const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
 
+  // S9.ii.c3 / c4 — branch the room render while an async window is open.
+  const asyncWindowOpen = room?.mode === 'async'
+    && room.asyncWindow !== undefined
+    && room.state === 'active';
+  const showAsyncVoterView = asyncWindowOpen
+    && !isHost
+    && me?.role !== 'spectator';
+  // c4: host monitoring view (countdown + share + per-story voted counts,
+  // never values). Spectators fall through to the normal flow.
+  const showAsyncHostView = asyncWindowOpen && isHost;
+
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
       <header className="border-b border-hairline">
@@ -58,7 +72,11 @@ export function RoomShell({
               per-client connection status badge in the header. */}
           <HostVacantBanner />
           <ReplacedNotice />
-          {stories.length === 0 ? (
+          {showAsyncVoterView && room ? (
+            <AsyncVoterView room={room} />
+          ) : showAsyncHostView && room ? (
+            <AsyncHostMonitorView room={room} slug={slug} />
+          ) : stories.length === 0 ? (
             <EmptyState
               slug={slug}
               deck={room?.deck ?? 'fibonacci'}
@@ -75,6 +93,10 @@ export function RoomShell({
           ) : (
             <>
               {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
+              {/* S9.ii.c2 — host-only async-window setup affordance. Self-gates
+                  on mode + asyncWindow + stories.length; renders nothing for
+                  sync rooms or once a window is open. */}
+              <AsyncOpenPanel />
               <StoryQueue />
               {isHost ? (
                 <div className="mt-2">
