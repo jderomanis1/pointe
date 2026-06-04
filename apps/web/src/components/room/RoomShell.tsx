@@ -12,6 +12,8 @@ import { ReplacedNotice } from './ReplacedNotice';
 import { AsyncOpenPanel } from './AsyncOpenPanel';
 import { AsyncVoterView } from './AsyncVoterView';
 import { AsyncHostMonitorView } from './AsyncHostMonitorView';
+import { ReviewHostScreen } from './ReviewHostScreen';
+import { ReviewVoterScreen } from './ReviewVoterScreen';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -51,6 +53,14 @@ export function RoomShell({
   // c4: host monitoring view (countdown + share + per-story voted counts,
   // never values). Spectators fall through to the normal flow.
   const showAsyncHostView = asyncWindowOpen && isHost;
+  // S9.iii — review screens mount when the room is in `review` (post async
+  // close, pre any live re-vote). When the host fires OPEN_DISCUSSION,
+  // room flips → 'active' (via room_state_changed) and a story flips to
+  // 'active', so the existing VotingStage branch takes over for both roles.
+  // COMMIT_STORY's return-to-review (active → review) routes back here.
+  const showReview = room?.state === 'review' && me?.role !== 'spectator';
+  const showReviewHost = showReview && isHost;
+  const showReviewVoter = showReview && !isHost;
 
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
@@ -76,6 +86,10 @@ export function RoomShell({
             <AsyncVoterView room={room} />
           ) : showAsyncHostView && room ? (
             <AsyncHostMonitorView room={room} slug={slug} />
+          ) : showReviewHost ? (
+            <ReviewHostScreen />
+          ) : showReviewVoter ? (
+            <ReviewVoterScreen />
           ) : stories.length === 0 ? (
             <EmptyState
               slug={slug}
