@@ -10,6 +10,8 @@ import { CommitPanel } from './CommitPanel';
 import { LongText } from './LongText';
 import { SplitForm } from './SplitForm';
 import { useSend } from './RoomClientContext';
+import { HostAiSection } from './HostAiSection';
+import { StoryExternalRef } from './StoryExternalRef';
 
 /**
  * The active-story focus, branched by story.state:
@@ -56,9 +58,8 @@ export function VotingStage({ story }: { story: Story }) {
           <Badge variant={isRevealed ? 'success' : 'accent'}>
             {isRevealed ? 'revealed' : 'voting open'}
           </Badge>
-          {story.externalId ? (
-            <span className="font-mono text-meta text-text-secondary">{story.externalId}</span>
-          ) : null}
+          <StoryExternalRef story={story} />
+
           {story.edited ? <Badge variant="neutral">edited</Badge> : null}
           {isHost && story.state === 'active' ? (
             <div className="ml-auto flex items-center gap-2">
@@ -127,6 +128,12 @@ export function VotingStage({ story }: { story: Story }) {
           {canVote ? <CastPanel story={story} /> : null}
         </div>
       )}
+
+      {/* S8.iii.c3 — host-only AI affordance + panel. Pre-reveal only:
+       *  decisions A/B (host's independent anchor-breaker, during voting).
+       *  Voters never render this; AA-1 is also data-enforced (their
+       *  `story.ai` is always undefined). */}
+      {isHost && story.state === 'active' ? <HostAiSection story={story} /> : null}
     </section>
   );
 }

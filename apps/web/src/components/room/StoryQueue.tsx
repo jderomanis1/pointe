@@ -5,6 +5,7 @@ import { Badge, type BadgeVariant } from '../Badge';
 import { Button } from '../Button';
 import { useSend } from './RoomClientContext';
 import { SplitForm } from './SplitForm';
+import { StoryExternalRef } from './StoryExternalRef';
 
 function stateBadge(state: StoryState) {
   const map: Record<StoryState, { variant: BadgeVariant; label: string }> = {
@@ -43,8 +44,10 @@ function StoryRow({
           <p className={`text-body break-words ${isMuted ? 'text-text-muted' : 'text-text'}`}>
             {s.text}
           </p>
-          {s.externalId ? (
-            <p className="text-meta font-mono text-text-muted mt-1">{s.externalId}</p>
+          {s.externalId || s.externalUrl ? (
+            <p className="mt-1">
+              <StoryExternalRef story={s} />
+            </p>
           ) : null}
         </div>
         <div className="shrink-0 flex items-center gap-2">

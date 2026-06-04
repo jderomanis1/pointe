@@ -611,6 +611,9 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
     if (existing.state === 'ready') {
       // Re-send notification; no new work, no rate consume.
       ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
+      // Host-only DELTA carrying the content (S8.iii.c1) — the host store
+      // applies `ai_updated` to set `story.ai`. Voters get nothing.
+      sendAiUpdatedToHost(ctx, p.storyId, existing);
       return [];
     }
     // existing.state === 'failed' → fall through and try again.
@@ -643,6 +646,8 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
       shared: false,
     });
     ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
+    // Host-only DELTA carries the content; voters get nothing.
+    sendAiUpdatedToHost(ctx, p.storyId, getAiSuggestion(ctx.sql, p.storyId));
     return [];
   }
 
@@ -680,6 +685,23 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
 function isRequestAiPayload(p: unknown): p is { storyId: string } {
   return typeof p === 'object' && p !== null
     && typeof (p as { storyId: unknown }).storyId === 'string';
+}
+
+/**
+ * S8.iii.c1 — host-only DELTA carrying the AI suggestion content. Routed via
+ * the orchestrator's `sendToHost('DELTA', ...)` so it lands on host sockets
+ * only (the orchestrator filters by live `room.host_voter_id`). Voters get
+ * zero on-completion traffic — the AA-1 timing-leak guarantee.
+ *
+ * No-op when the suggestion is null (defensive — shouldn't happen at the
+ * call-sites that invoke this, but never emit a broken delta).
+ */
+function sendAiUpdatedToHost(
+  ctx: HandlerCtx, storyId: string, ai: AISuggestion | null,
+): void {
+  if (!ctx.aiOrchestrator || !ai) return;
+  const change: DeltaChange = { kind: 'ai_updated', storyId, ai };
+  ctx.aiOrchestrator.sendToHost('DELTA', { changes: [change] });
 }
 
 function isShareAiPayload(p: unknown): p is ShareAiPayload {

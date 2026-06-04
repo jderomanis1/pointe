@@ -307,7 +307,22 @@ export type DeltaChange =
     }
   | { kind: 'story_committed'; storyId: string; finalEstimate: string }
   | { kind: 'story_skipped'; storyId: string }
-  | { kind: 'story_split'; parentId: string; children: Story[] };
+  | { kind: 'story_split'; parentId: string; children: Story[] }
+  /**
+   * S8.iii.c1 — host-only AI content delivery.
+   *
+   * Pending stories are out of snapshot scope, so the snapshot can't deliver
+   * a freshly-completed AI suggestion to the host. This change is the push
+   * channel: emitted via the AI orchestrator's `sendToHost` after the API
+   * call settles (ready or failed) and on the cache-hit / already-ready
+   * fast paths. The host reducer sets `story.ai` from it.
+   *
+   * AA-1: host-only by construction (sent through `sendToHostSockets` which
+   * filters by live `room.host_voter_id`). `projectChangesFor` ALSO strips
+   * this change for non-hosts as defense-in-depth — should it ever leak
+   * into the general broadcast path, the projector drops it.
+   */
+  | { kind: 'ai_updated'; storyId: string; ai: AISuggestion };
 
 export type DeltaPayload = { changes: DeltaChange[] };
 

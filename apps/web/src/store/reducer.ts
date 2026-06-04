@@ -280,6 +280,18 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
       return { ...state, stories: next };
     }
 
+    case 'ai_updated':
+      // S8.iii.c1 — only ever arrives on the host's socket (server-side
+      // host-only fan-out + projector defense-in-depth). The reducer applies
+      // it unconditionally; a voter's store never sees this kind because
+      // the server never sends it to them.
+      return {
+        ...state,
+        stories: state.stories.map((s) =>
+          s.id === change.storyId ? { ...s, ai: change.ai } : s,
+        ),
+      };
+
     default: {
       // Compile-time check: adding a new DeltaChange kind without handling it fails typecheck.
       const _exhaustive: never = change;

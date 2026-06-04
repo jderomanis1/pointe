@@ -79,6 +79,13 @@ export function projectChangesFor(
         }
         return projected === change.ai ? [change] : [{ ...change, ai: projected }];
       }
+      // Host-only by design (S8.iii.c1). This change is delivered through
+      // `sendToHostSockets` (which targets only the live host), so it should
+      // never reach this projector via the public broadcast path. Defense
+      // in depth: if it ever does, strip it for non-hosts so the AI content
+      // can't leak via a stray broadcast.
+      case 'ai_updated':
+        return isHost ? [change] : [];
       // Public — pass through for every viewer.
       case 'voter_joined':
       case 'voter_left':
