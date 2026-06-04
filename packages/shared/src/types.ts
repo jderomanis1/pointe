@@ -182,6 +182,14 @@ export type CreateRoomResponse = {
 export type GetRoomResponse = {
   state: RoomState;
   deck: DeckType;
+  /** S9.ii.c1 — echoed so the pre-join gate can frame async arrival. */
+  mode: RoomMode;
+  /**
+   * S9.ii.c1 — when set, the async window's epoch-ms closes-at. Null for
+   * sync rooms and for async rooms whose window hasn't been opened yet.
+   * Pre-join clients drive the countdown off this.
+   */
+  closesAt: number | null;
 };
 
 export type ApiError = { code: string; message: string };

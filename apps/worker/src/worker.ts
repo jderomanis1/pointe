@@ -184,6 +184,10 @@ async function getRoomEndpoint(request: Request, env: Env): Promise<Response | n
   const responseBody: GetRoomResponse = {
     state: readState.room.state,
     deck: readState.room.deck,
+    // S9.ii.c1 — pre-join framing for async rooms. mode is set at create;
+    // closesAt is null until OPEN_ASYNC stamps async_window.
+    mode: readState.room.mode,
+    closesAt: readState.room.asyncWindow?.closesAt ?? null,
   };
   return json(responseBody, 200);
 }
