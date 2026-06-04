@@ -2,14 +2,16 @@ import type { SqlStorage, WebSocket } from '@cloudflare/workers-types';
 import type {
   AddStoryPayload, AiSharedPayload, AISuggestion, CommitStoryPayload, DeltaChange,
   EditStoryPayload, Envelope, ErrorPayload, HostReclaimedPayload, JoinRoomPayload,
-  OpenVotingPayload, RevealVotesPayload, RoomSnapshot, ServerMessageType, ShareAiPayload,
-  SkipStoryPayload, SnapshotStory, SplitStoryPayload, TransferHostPayload, VoteCastPayload,
-  VoterRole,
+  OpenAsyncPayload, OpenVotingPayload, RevealVotesPayload, RoomSnapshot,
+  ServerMessageType, ShareAiPayload, SkipStoryPayload, SnapshotStory, SplitStoryPayload,
+  TransferHostPayload, VoteCastPayload, VoterRole,
 } from '@pointe/shared';
-import { PROTOCOL_VERSION, computeRevealStats, resolveDeck } from '@pointe/shared';
 import {
-  addStory, castVote, commitStory, editStory, insertAuditEvent, openVoting,
-  revealVotes, resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
+  PROTOCOL_VERSION, WINDOW_DURATIONS, computeRevealStats, resolveDeck,
+} from '@pointe/shared';
+import {
+  addStory, castVote, commitStory, editStory, insertAuditEvent, openAsyncWindow,
+  openVoting, revealVotes, resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState,
   getVoterById, setRoomHost, skipStory, splitStory,
 } from './operations';
 import { getAttachment } from './broadcast';
@@ -31,6 +33,11 @@ export type CancelHostVacantFn = () => void;
 /** S7.iii: fan out a non-DELTA server envelope (HOST_RECLAIMED, …) to every
  *  attached socket. Wrapped here so the dispatcher doesn't import broadcast.ts. */
 export type BroadcastEnvelopeFn = <T>(type: ServerMessageType, payload: T) => void;
+
+/** S9.i.c2: fire-and-forget — arm the async-close alarm. The wrapper in
+ *  room.ts calls `scheduleTask(storage, 'async_close', closesAt, …)`. Same
+ *  fire-and-forget semantics as `cancelHostVacantTask`. */
+export type ScheduleAsyncCloseFn = (closesAt: number) => void;
 
 /**
  * S8.ii.b — AI orchestrator. The room.ts wrapper supplies the live
@@ -78,6 +85,8 @@ type HandlerCtx = {
   broadcastEnvelope: BroadcastEnvelopeFn;
   /** S8.ii.b: AI orchestrator. Null in tests / when the worker has no AI wiring. */
   aiOrchestrator: AiOrchestrator | null;
+  /** S9.i.c2: arm the async_close scheduled task. No-op in tests by default. */
+  scheduleAsyncClose: ScheduleAsyncCloseFn;
 };
 
 /**
@@ -92,6 +101,7 @@ export function handleMessage(
   cancelHostVacantTask: CancelHostVacantFn = () => {},
   broadcastEnvelope: BroadcastEnvelopeFn = () => {},
   aiOrchestrator: AiOrchestrator | null = null,
+  scheduleAsyncClose: ScheduleAsyncCloseFn = () => {},
 ): Envelope[] {
   // Pre-parse errors: no request id available, mint.
   if (typeof raw !== 'string') {
@@ -135,6 +145,7 @@ export function handleMessage(
     cancelHostVacantTask,
     broadcastEnvelope,
     aiOrchestrator,
+    scheduleAsyncClose,
   });
 }
 
@@ -150,6 +161,8 @@ function route(ctx: HandlerCtx): Envelope[] {
       return handleEditStory(ctx);
     case 'OPEN_VOTING':
       return handleOpenVoting(ctx);
+    case 'OPEN_ASYNC':
+      return handleOpenAsync(ctx);
     case 'VOTE_CAST':
       return handleVoteCast(ctx);
     case 'REVEAL_VOTES':
@@ -284,6 +297,53 @@ function handleOpenVoting(ctx: HandlerCtx): Envelope[] {
     const code = err instanceof Error ? err.message : 'INTERNAL';
     return [makeError(code, code, false, ctx.envelope.id)];
   }
+}
+
+/**
+ * S9.i.c2 — OPEN_ASYNC (host-only). Arms the async voting window:
+ *  • Validates payload (`window: '4h' | '24h' | '3d'`).
+ *  • `openAsyncWindow` op flips every pending story → active, stamps
+ *    `room.async_window = { opensAt, closesAt }`, transitions
+ *    `room.state` → 'active'. Throws ROOM_NOT_ASYNC / ASYNC_ALREADY_OPENED
+ *    / NO_PENDING_STORIES if guards fail.
+ *  • Arms the close alarm via `ctx.scheduleAsyncClose(closesAt)`. The
+ *    scheduler multiplexes — a pending host_vacant alarm is preserved
+ *    by `rescheduleAlarm`'s MIN(at) logic; no clobbering.
+ *  • Broadcasts an `async_window_opened` change to all sockets so clients
+ *    see the queue go active in bulk.
+ */
+function handleOpenAsync(ctx: HandlerCtx): Envelope[] {
+  if (ctx.alreadyProcessed) return [];
+  const auth = requireHost(ctx);
+  if (!auth.ok) return [auth.error];
+  if (!isOpenAsyncPayload(ctx.envelope.payload)) {
+    return [makeError('INVALID_PAYLOAD', 'OPEN_ASYNC payload invalid', false, ctx.envelope.id)];
+  }
+  const p = ctx.envelope.payload;
+  const durationMs = WINDOW_DURATIONS[p.window];
+  const now = Date.now();
+  const closesAt = now + durationMs;
+  try {
+    const result = openAsyncWindow(ctx.sql, { opensAt: now, closesAt });
+    ctx.markProcessed();
+    ctx.scheduleAsyncClose(closesAt);
+    ctx.broadcast([{
+      kind: 'async_window_opened',
+      opensAt: now,
+      closesAt,
+      storyIds: result.storyIds,
+    }]);
+    return [];
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'INTERNAL';
+    return [makeError(code, code, false, ctx.envelope.id)];
+  }
+}
+
+function isOpenAsyncPayload(p: unknown): p is OpenAsyncPayload {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return o.window === '4h' || o.window === '24h' || o.window === '3d';
 }
 
 /**

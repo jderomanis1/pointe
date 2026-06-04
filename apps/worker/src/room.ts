@@ -138,6 +138,12 @@ export class Room {
       // S8.ii.b: REQUEST_AI orchestration. The dispatcher's handler runs
       // sync (cache check, rate check, accept); the API call happens here.
       this.aiOrchestrator(),
+      // S9.i.c2: OPEN_ASYNC arms the close alarm. Fire-and-forget — the
+      // alarm is in place in milliseconds; the scheduler multiplexes via
+      // MIN(at) so any pending host_vacant alarm is preserved.
+      (closesAt) => {
+        void scheduleTask(this.ctx.storage, 'async_close', closesAt, { closesAt });
+      },
     );
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
