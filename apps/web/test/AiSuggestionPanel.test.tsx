@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AISuggestion } from '@pointe/shared';
@@ -115,5 +115,77 @@ describe('<AiSuggestionPanel /> — What\'s CERU popover (OQ-001)', () => {
     await user.click(screen.getByRole('button', { name: /What['’]s CERU\?/i }));
     await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog', { name: /What is CERU/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---- S8.iv.c1: reveal + share variants -------------------------------------
+
+const READY_SHARED: Extract<AISuggestion, { state: 'ready' }> = { ...READY, shared: true };
+
+describe('<AiSuggestionPanel /> — S8.iv host at reveal, not yet shared', () => {
+  it('renders the armed "Share with the team" button + the "or keep it as your reference" caption', () => {
+    const onShare = vi.fn();
+    render(<AiSuggestionPanel ai={READY} isHost revealed onShare={onShare} />);
+    expect(screen.getByRole('button', { name: /Share with the team/i })).toBeInTheDocument();
+    expect(screen.getByText(/or keep it as your reference/i)).toBeInTheDocument();
+    // "Visible to you only" is still present pre-share — privacy framing while
+    // the suggestion is still the host's reference alone.
+    expect(screen.getByText('Visible to you only')).toBeInTheDocument();
+  });
+
+  it('clicking the share button invokes onShare exactly once', async () => {
+    const onShare = vi.fn();
+    render(<AiSuggestionPanel ai={READY} isHost revealed onShare={onShare} />);
+    await userEvent.click(screen.getByRole('button', { name: /Share with the team/i }));
+    expect(onShare).toHaveBeenCalledTimes(1);
+  });
+
+  it('a host at reveal with NO onShare handler does NOT render the share button (defensive)', () => {
+    render(<AiSuggestionPanel ai={READY} isHost revealed />);
+    expect(screen.queryByRole('button', { name: /Share with the team/i })).not.toBeInTheDocument();
+  });
+
+  it('a NON-host at reveal does NOT render the share button (visibility-gate-in-component)', () => {
+    const onShare = vi.fn();
+    render(<AiSuggestionPanel ai={READY} isHost={false} revealed onShare={onShare} />);
+    expect(screen.queryByRole('button', { name: /Share with the team/i })).not.toBeInTheDocument();
+  });
+
+  it('pre-reveal host (active story) does NOT render the share button (you can\'t share before reveal)', () => {
+    const onShare = vi.fn();
+    render(<AiSuggestionPanel ai={READY} isHost revealed={false} onShare={onShare} />);
+    expect(screen.queryByRole('button', { name: /Share with the team/i })).not.toBeInTheDocument();
+    // The pre-reveal privacy framing stays.
+    expect(screen.getByText('Visible to you only')).toBeInTheDocument();
+  });
+});
+
+describe('<AiSuggestionPanel /> — S8.iv shared (read-only) variant', () => {
+  it('host view: "Visible to you only" + share button drop; "Shared with the team" label appears', () => {
+    const onShare = vi.fn();
+    render(<AiSuggestionPanel ai={READY_SHARED} isHost revealed onShare={onShare} />);
+    expect(screen.queryByText('Visible to you only')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Share with the team/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Shared with the team')).toBeInTheDocument();
+  });
+
+  it('non-host view: same drops; the label says "Shared by the host"', () => {
+    render(<AiSuggestionPanel ai={READY_SHARED} isHost={false} revealed />);
+    expect(screen.queryByText('Visible to you only')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Share with the team/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Shared by the host')).toBeInTheDocument();
+  });
+
+  it('the shared variant renders the four dimensions + the suggested range identically (read-only same content)', () => {
+    render(<AiSuggestionPanel ai={READY_SHARED} isHost={false} revealed />);
+    expect(screen.getByText('Complexity')).toBeInTheDocument();
+    expect(screen.getByText('Effort')).toBeInTheDocument();
+    expect(screen.getByText('Risk')).toBeInTheDocument();
+    expect(screen.getByText('Unknowns')).toBeInTheDocument();
+    expect(screen.getByText('Suggested range')).toBeInTheDocument();
+    // Range values still in mono.
+    const range = screen.getByText('Suggested range').nextElementSibling as HTMLElement;
+    expect(range.textContent).toContain('5');
+    expect(range.textContent).toContain('8');
   });
 });

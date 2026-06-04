@@ -1,5 +1,5 @@
 import type {
-  DeltaChange, DeltaPayload, HostReclaimedPayload, HostVacantPayload,
+  AiSharedPayload, DeltaChange, DeltaPayload, HostReclaimedPayload, HostVacantPayload,
   RoomSnapshot, RevealStats, Story, Vote, Voter,
 } from '@pointe/shared';
 import { computeRevealStats, resolveDeck } from '@pointe/shared';
@@ -150,6 +150,27 @@ export function applyHostReclaimed(
     },
     voters,
     replacedByHostName,
+  };
+}
+
+/**
+ * S8.iv.c2 — AI_SHARED arrives at every JOIN-bound socket (S8.ii.c
+ * broadcast). The payload carries the ready suggestion with shared:true.
+ * For the host this flips the panel from armed-share to shared-readonly;
+ * for a voter it populates `story.ai` for the first time so the panel can
+ * render. Idempotent: re-applying on an already-shared row is a no-op.
+ *
+ * Tolerant of stale storyId targets (story split/skipped before the event
+ * arrives) — drop silently rather than corrupt state.
+ */
+export function applyAiShared(state: RoomStore, payload: AiSharedPayload): RoomStore {
+  const target = state.stories.find((s) => s.id === payload.storyId);
+  if (!target) return state;
+  return {
+    ...state,
+    stories: state.stories.map((s) =>
+      s.id === payload.storyId ? { ...s, ai: payload.ai } : s,
+    ),
   };
 }
 

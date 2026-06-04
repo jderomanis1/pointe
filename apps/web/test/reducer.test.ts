@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type {
   DeltaChange, Room, RoomSnapshot, Story, Vote, Voter,
 } from '@pointe/shared';
-import { applyChange, applyDelta, applySnapshot, initialState } from '../src/store/reducer';
+import { applyAiShared, applyChange, applyDelta, applySnapshot, initialState } from '../src/store/reducer';
 
 // ---- helpers ----
 
@@ -320,5 +320,53 @@ describe('applyDelta', () => {
     const state = applyDelta(initialState, { changes });
     expect(state.voters['v-a'].connectionState).toBe('left');
     expect(state.voters['v-b'].connectionState).toBe('connected');
+  });
+});
+
+describe('applyAiShared — S8.iv.c2 (the host-deliberate voter exposure)', () => {
+  const READY_SHARED = {
+    state: 'ready' as const,
+    complexity: { level: 'medium' as const, note: 'c' },
+    effort: { level: 'low' as const, note: 'e' },
+    risk: { level: 'low' as const, note: 'r' },
+    unknowns: { level: 'low' as const, note: 'u' },
+    suggestedRange: { low: '3', high: '5' },
+    rationale: 'because',
+    shared: true,
+  };
+
+  it('voter view: a story with no story.ai gets it populated (the first time voter sees the suggestion)', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'revealed') });
+    expect(state.stories[0].ai).toBeUndefined();
+    state = applyAiShared(state, { storyId: 's-1', ai: READY_SHARED });
+    expect(state.stories[0].ai).toEqual(READY_SHARED);
+    if (state.stories[0].ai!.state !== 'ready') throw new Error('expected ready');
+    expect(state.stories[0].ai.shared).toBe(true);
+  });
+
+  it('host view: a story with an unshared ready ai gets the shared flag flipped (post-share readonly)', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'revealed') });
+    state = applyChange(state, {
+      kind: 'ai_updated', storyId: 's-1',
+      ai: { ...READY_SHARED, shared: false },
+    });
+    expect((state.stories[0].ai as { shared: boolean }).shared).toBe(false);
+    state = applyAiShared(state, { storyId: 's-1', ai: READY_SHARED });
+    expect((state.stories[0].ai as { shared: boolean }).shared).toBe(true);
+  });
+
+  it('targets only the matching story; siblings are unchanged', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'revealed') });
+    state = applyChange(state, { kind: 'story_added', story: makeStory('s-2', 200, 'pending') });
+    state = applyAiShared(state, { storyId: 's-1', ai: READY_SHARED });
+    expect(state.stories.find((s) => s.id === 's-1')?.ai).toEqual(READY_SHARED);
+    expect(state.stories.find((s) => s.id === 's-2')?.ai).toBeUndefined();
+  });
+
+  it('unknown storyId is a silent no-op (story may have split/skipped after the event was queued)', () => {
+    let state = applyChange(initialState, { kind: 'story_added', story: makeStory('s-1', 100, 'revealed') });
+    const before = state;
+    state = applyAiShared(state, { storyId: 'gone', ai: READY_SHARED });
+    expect(state).toBe(before); // identity preserved → React shallow-equal short-circuit OK
   });
 });

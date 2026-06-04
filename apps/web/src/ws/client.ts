@@ -1,6 +1,6 @@
 import type {
-  ClientMessageType, DeltaPayload, Envelope, ErrorPayload, HostReclaimedPayload,
-  HostVacantPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
+  AiSharedPayload, ClientMessageType, DeltaPayload, Envelope, ErrorPayload,
+  HostReclaimedPayload, HostVacantPayload, JoinRoomPayload, RoomSnapshot, ServerMessageType,
 } from '@pointe/shared';
 import { PROTOCOL_VERSION } from '@pointe/shared';
 import type { ConnectionStatus } from '../store/types';
@@ -11,6 +11,7 @@ export type StoreHooks = {
   applyServerDelta: (payload: DeltaPayload) => void;
   applyHostVacant: (payload: HostVacantPayload) => void;
   applyHostReclaimed: (payload: HostReclaimedPayload) => void;
+  applyAiShared: (payload: AiSharedPayload) => void;
   setConnection: (status: ConnectionStatus) => void;
 };
 
@@ -180,6 +181,11 @@ export class RoomWsClient {
         break;
       case 'HOST_RECLAIMED':
         this.opts.store.applyHostReclaimed(env.payload as HostReclaimedPayload);
+        break;
+      case 'AI_SHARED':
+        // S8.iv.c2: the only sanctioned path that crosses `ai` to a voter.
+        // The reducer sets story.ai on the matching story for all viewers.
+        this.opts.store.applyAiShared(env.payload as AiSharedPayload);
         break;
       default:
         // Unknown server message — ignore for forward compat.

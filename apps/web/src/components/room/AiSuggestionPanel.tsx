@@ -1,23 +1,40 @@
 import { useState, type ReactNode } from 'react';
-import { EyeOff, HelpCircle, X } from 'lucide-react';
+import { Check, EyeOff, HelpCircle, X } from 'lucide-react';
 import type { AISuggestion, DimLevel } from '@pointe/shared';
+import { Button } from '../Button';
 import { cn } from '../../lib/cn';
 
 /**
- * S8.iii.c2 — the host's private AI suggestion panel.
+ * S8.iii.c2 + S8.iv.c1 — the AI suggestion panel.
  *
- * Rendered from a `ready` or `failed` AISuggestion. Voters never see this
- * component — the visibility gate lives one level up (S8.iii.c3 wires it
- * to `isHost && story.ai`). All design-token only — no hardcoded hex.
+ * Two viewer contexts and two share states, all in one component:
+ *   • S8.iii pre-reveal, host: host-private during voting. Shows
+ *     "Visible to you only". No share — you can't share before reveal.
+ *   • S8.iv reveal, host, NOT YET SHARED: same "Visible to you only" plus
+ *     the armed oxblood "Share with the team" button + the "or keep it
+ *     as your reference" caption.
+ *   • S8.iv reveal, ANY viewer, SHARED: "Visible to you only" drops; share
+ *     button drops; a quiet contextual shared label appears
+ *     (host → "Shared with the team", non-host → "Shared by the host").
+ *     Panel is read-only.
  *
- * Scope per the slice: NO share control here. Sharing is a post-reveal act
- * landing in S8.iv. The component leaves a slot intent (`footerSlot`) so
- * S8.iv can extend without rewriting the panel.
+ * The visibility gate (host-private during pre-reveal; voter-renders-only-
+ * after-share) lives at the call-site. AA-1 holds because a voter's
+ * `story.ai` is undefined until AI_SHARED lands — they have nothing to pass
+ * to this component until the host shares.
  */
 export type AiSuggestionPanelProps = {
   ai: AISuggestion;
+  /** Whose viewer is this? Drives the shared label wording + share affordance. */
+  isHost?: boolean;
+  /** True iff story.state is 'revealed' or 'committed'. Gates the share button. */
+  revealed?: boolean;
+  /** Called when the host clicks "Share with the team". Required for the
+   *  share button to render; undefined disables it entirely. */
+  onShare?: () => void;
   className?: string;
-  /** S8.iv extension point: rendered below the rationale (e.g. a share row). */
+  /** Slot rendered below the rationale, above any built-in footer (share /
+   *  shared label). Reserved for future extension; the slice doesn't use it. */
   footerSlot?: ReactNode;
 };
 
@@ -30,8 +47,14 @@ const DIM_LABEL: Record<typeof DIMENSIONS[number], string> = {
   unknowns: 'Unknowns',
 };
 
-export function AiSuggestionPanel({ ai, className, footerSlot }: AiSuggestionPanelProps) {
+export function AiSuggestionPanel({
+  ai, isHost = false, revealed = false, onShare, className, footerSlot,
+}: AiSuggestionPanelProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const shared = ai.state === 'ready' && ai.shared === true;
+  // The armed share button only renders for a host at reveal, with a
+  // not-yet-shared ready suggestion AND an onShare handler wired up.
+  const canShare = isHost && revealed && ai.state === 'ready' && !shared && !!onShare;
 
   if (ai.state === 'pending') {
     // Quiet pending state — the ask affordance (c3) drives this UX,
@@ -86,10 +109,16 @@ export function AiSuggestionPanel({ ai, className, footerSlot }: AiSuggestionPan
     >
       <PanelHeader onWhatIsCeru={() => setPopoverOpen(true)} />
 
-      <p className="flex items-center gap-1.5 text-caption text-text-muted">
-        <EyeOff size={12} aria-hidden="true" />
-        <span>Visible to you only</span>
-      </p>
+      {/* Visibility caption — drops once the suggestion is shared. */}
+      {!shared ? (
+        <p
+          className="flex items-center gap-1.5 text-caption text-text-muted"
+          data-slot="visibility-caption"
+        >
+          <EyeOff size={12} aria-hidden="true" />
+          <span>Visible to you only</span>
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-3">
         {DIMENSIONS.map((dim) => (
@@ -122,6 +151,35 @@ export function AiSuggestionPanel({ ai, className, footerSlot }: AiSuggestionPan
       </p>
 
       {footerSlot}
+
+      {/* S8.iv.c1 footer: at reveal, either the armed share button (host,
+       *  not-yet-shared) OR the contextual shared label (anyone, post-share).
+       *  Pre-reveal renders neither. */}
+      {canShare ? (
+        <div
+          data-slot="share-affordance"
+          className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+        >
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onShare}
+          >
+            Share with the team
+          </Button>
+          <p className="text-caption text-text-muted">
+            or keep it as your reference
+          </p>
+        </div>
+      ) : shared ? (
+        <p
+          data-slot="shared-label"
+          className="flex items-center gap-1.5 text-caption text-text-secondary"
+        >
+          <Check size={12} aria-hidden="true" />
+          <span>{isHost ? 'Shared with the team' : 'Shared by the host'}</span>
+        </p>
+      ) : null}
 
       {popoverOpen ? <CeruPopover onClose={() => setPopoverOpen(false)} /> : null}
     </section>
