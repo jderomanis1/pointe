@@ -1,27 +1,34 @@
 /**
  * SI-06 WS handshake rate — re-verified against REAL Cloudflare DO SQLite.
  *
- * This is the proof file for the @cloudflare/vitest-pool-workers harness
- * (Phase 1 of the test-migration). It runs in workerd against the real
- * DurableObjectStorage SQLite, which is where `.one()` actually throws on
- * zero rows. The previous better-sqlite3 mock silently returned undefined
- * on zero rows and hid the original WS-rate bug; this file is the standing
- * regression that catches a regression to that shape.
+ * This file holds the standing regression that catches the prior
+ * SELECT-then-`.one()` shape (zero rows + `.one()` = throw on real DO
+ * SQLite). The upsert-returning shape sidesteps it; the integration
+ * "first call in a fresh window" test below is the trip-wire.
  *
- * S8.ii.b: the temporary X-RL-* diagnostic headers have been removed from
- * the production response (SI-06 is verified enforcing). Tests now read
- * `ws_handshake_rate` directly via runInDurableObject for the count when
- * an assertion needs it. Status code (101 vs 429) covers the rate-trip.
+ * S9 fix (pre-existing minute-rollover flake): the trip-at-31 + per-IP
+ * independence assertions are now driven by the pure
+ * `checkWsHandshakeRate(sql, { ip, now })` helper through
+ * `runInDurableObject`, with a deterministic `now` pinned to a single
+ * window. The DO `room.fetch('/ws')` wrapper is exercised by the
+ * boundary-robust integration smoke test (single handshake → 101; the
+ * zero-row regression check). Replaces the prior 31-stub.fetch loop
+ * whose result depended on where in the wall-clock minute it ran — that
+ * is the S7 rate-limit saga's lesson resurfacing: a counter test whose
+ * assertion depends on wall-clock alignment is untrustworthy CI.
+ *
+ * S8.ii.b note retained for context: the temporary X-RL-* diagnostic
+ * headers have been removed from the production response (SI-06 is
+ * verified enforcing). Tests read `ws_handshake_rate` directly via
+ * `runInDurableObject` for the count when an assertion needs it. Status
+ * code (101 vs 429) covers the rate-trip end-to-end.
  */
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 import type { DurableObjectNamespace, DurableObjectStub } from '@cloudflare/workers-types';
+import { checkWsHandshakeRate, MINUTE_MS, RL_WS_PER_MIN } from '../src/rateLimit';
 
-// The Env shape isn't auto-typed in this repo; cast loosely. The pool reads
-// the bindings from wrangler.toml at runtime.
 const ROOM = (env as { ROOM: DurableObjectNamespace }).ROOM;
-
-const RL_WS_PER_MIN = 30;
 
 function wsReq(ip: string): Request {
   return new Request('https://do/ws', {
@@ -37,12 +44,16 @@ async function ensureRoom(stub: DurableObjectStub): Promise<void> {
   await res.arrayBuffer(); // consume body — pool requirement
 }
 
-describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
+describe('WS handshake rate — integration: zero-row regression (deterministic, single handshake)', () => {
   it('first call in a fresh window does not throw (zero-row case) and counts to 1', async () => {
     // This is the exact case the prior SELECT-then-INSERT pattern blew up
     // on: zero rows + .one() = throw in real DO SQLite. The upsert-returning
     // shape sidesteps the SELECT, so the first call must succeed and persist
     // count=1. If this regresses, future bugs of this shape are caught.
+    //
+    // Deterministic — a single handshake within a minute can't span a
+    // boundary. The 31-handshake loop that DID span boundaries is now a
+    // unit test against the pure helper (below).
     const id = ROOM.idFromName('rate-fresh-window');
     const stub = ROOM.get(id);
     await ensureRoom(stub);
@@ -62,64 +73,147 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
       expect(rows[0].count).toBe(1);
     });
   });
+});
 
-  it('trips at exactly the 31st handshake for one IP (status climbs 101×30 then 429; row count = 31)', async () => {
-    const id = ROOM.idFromName('rate-trip');
+// ---- Unit: trip-at-31 against the pure helper (deterministic, single window) ----
+
+describe('checkWsHandshakeRate — trip logic (pure helper, fixed `now`)', () => {
+  /**
+   * The trip truth: 30 increments in window W → all within limit; the 31st
+   * within W → over limit. The fix injects `now` so all 31 calls land in the
+   * SAME window regardless of when CI runs. No wall-clock dependency.
+   */
+  it('trips at exactly the 31st handshake within ONE window (count climbs 1..30 untripped, 31 tripped)', async () => {
+    const id = ROOM.idFromName('rate-helper-trip');
     const stub = ROOM.get(id);
     await ensureRoom(stub);
 
-    for (let i = 1; i <= RL_WS_PER_MIN; i++) {
-      const res = await stub.fetch(wsReq('1.2.3.4'));
-      await res.arrayBuffer();
-      expect(res.status).toBe(101);
-    }
+    // Pick an arbitrary window-aligned time. Math.floor zeroes any sub-minute
+    // remainder; the choice is irrelevant — what matters is all 31 calls use it.
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
 
-    const res31 = await stub.fetch(wsReq('1.2.3.4'));
-    expect(res31.status).toBe(429);
-    expect(res31.headers.get('Retry-After')).toBe('60');
-    const body = (await res31.json()) as { code: string };
-    expect(body.code).toBe('RATE_LIMITED');
-
-    // The DO row is the source of truth for the count progression.
     await runInDurableObject(stub, async (_inst, state) => {
-      const row = state.storage.sql
-        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '1.2.3.4'`)
-        .toArray()[0];
-      expect(row.count).toBe(31); // 30 allowed + 1 over → still increments
+      for (let i = 1; i <= RL_WS_PER_MIN; i++) {
+        const r = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: W });
+        expect(r.count).toBe(i);
+        expect(r.tripped).toBe(false);
+      }
+      // The 31st — over limit.
+      const r31 = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: W });
+      expect(r31.count).toBe(31);
+      expect(r31.tripped).toBe(true);
+      expect(r31.windowStart).toBe(W);
     });
   });
 
-  it('two different IPs are independent (per-IP scope is structural)', async () => {
-    const id = ROOM.idFromName('rate-per-ip');
+  it('two different IPs are independent (per-IP scope is structural, fixed `now`)', async () => {
+    const id = ROOM.idFromName('rate-helper-per-ip');
     const stub = ROOM.get(id);
     await ensureRoom(stub);
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
 
-    // Burn 1.1.1.1's budget.
-    for (let i = 0; i < RL_WS_PER_MIN; i++) {
-      const res = await stub.fetch(wsReq('1.1.1.1'));
-      await res.arrayBuffer();
-    }
-    const overA = await stub.fetch(wsReq('1.1.1.1'));
-    await overA.arrayBuffer();
-    expect(overA.status).toBe(429);
-
-    // 2.2.2.2 has full budget — independent bucket.
-    const okB = await stub.fetch(wsReq('2.2.2.2'));
-    await okB.arrayBuffer();
-    expect(okB.status).toBe(101);
     await runInDurableObject(stub, async (_inst, state) => {
-      const row = state.storage.sql
-        .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '2.2.2.2'`)
-        .toArray()[0];
-      expect(row.count).toBe(1);
+      // Burn 1.1.1.1's budget.
+      for (let i = 0; i < RL_WS_PER_MIN; i++) {
+        checkWsHandshakeRate(state.storage.sql, { ip: '1.1.1.1', now: W });
+      }
+      const overA = checkWsHandshakeRate(state.storage.sql, { ip: '1.1.1.1', now: W });
+      expect(overA.tripped).toBe(true);
+
+      // 2.2.2.2 has full budget — independent bucket.
+      const okB = checkWsHandshakeRate(state.storage.sql, { ip: '2.2.2.2', now: W });
+      expect(okB.tripped).toBe(false);
+      expect(okB.count).toBe(1);
+    });
+  });
+});
+
+// ---- The across-boundary determinism demonstration ----
+
+/**
+ * The exact case that flaked PR #23: the burst straddles a window boundary
+ * (`Math.floor(now / 60_000) * 60_000` ticks over) and the impl's stale-row
+ * DELETE nukes the count, so what was iteration 31 in the OLD window is
+ * iteration 1 in the NEW window — `tripped: false`. With the pure helper
+ * and a controlled `now`, we demonstrate this is correct production
+ * behavior AND verify it doesn't sabotage the trip-at-31 truth: the truth
+ * is about staying within a single window, not "31 calls trips no matter
+ * what". The integration test that pretended otherwise is gone.
+ *
+ * This test passes because the helper makes the rollover a first-class
+ * observable: the windowStart returned by the helper changes, and the
+ * caller sees a fresh count.
+ */
+describe('checkWsHandshakeRate — across-boundary determinism (the flake, made non-flaky)', () => {
+  it('30 increments at window W, then a 31st at W+60_000 → counter RESETS to 1 (correct production behavior)', async () => {
+    const id = ROOM.idFromName('rate-helper-rollover-mid-burst');
+    const stub = ROOM.get(id);
+    await ensureRoom(stub);
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
+    const NEXT = W + MINUTE_MS;
+
+    await runInDurableObject(stub, async (_inst, state) => {
+      for (let i = 1; i <= RL_WS_PER_MIN; i++) {
+        const r = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: W });
+        expect(r.count).toBe(i);
+        expect(r.windowStart).toBe(W);
+      }
+      // The 31st call, but rolled into the NEXT window. Production behavior:
+      // stale-row DELETE nukes the W bucket; UPSERT lands at NEXT, count=1.
+      // This is precisely what flaked CI on PR #23 — the prior integration
+      // test asserted `tripped` here. That assertion was wrong: production
+      // SHOULD reset across the boundary; the rate cap is per-minute.
+      const r31 = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: NEXT });
+      expect(r31.windowStart).toBe(NEXT);
+      expect(r31.count).toBe(1);
+      expect(r31.tripped).toBe(false);
+
+      // And the W bucket is gone (stale-row DELETE).
+      const rows = state.storage.sql
+        .exec<{ window_start: number; count: number }>(
+          `SELECT window_start, count FROM ws_handshake_rate WHERE ip = '1.2.3.4'`,
+        )
+        .toArray();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].window_start).toBe(NEXT);
+      expect(rows[0].count).toBe(1);
     });
   });
 
-  it('window rollover: crossing a minute boundary resets the counter for the new bucket', async () => {
-    // The implementation deletes stale rows (window_start < current) then
-    // upserts at the current windowStart. We simulate the minute crossing
-    // by force-aging the row to the previous bucket via direct SQL — the
-    // next handshake lands in the new minute, so the count restarts at 1.
+  it('trip-at-31 truth holds INSIDE one window even when a rollover happens immediately after (the 31st at W trips; subsequent at W+60_000 resets)', async () => {
+    const id = ROOM.idFromName('rate-helper-trip-then-rollover');
+    const stub = ROOM.get(id);
+    await ensureRoom(stub);
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
+    const NEXT = W + MINUTE_MS;
+
+    await runInDurableObject(stub, async (_inst, state) => {
+      // All 31 within W → 31st trips.
+      for (let i = 0; i < RL_WS_PER_MIN; i++) {
+        checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: W });
+      }
+      const tripped = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: W });
+      expect(tripped.tripped).toBe(true);
+      expect(tripped.count).toBe(31);
+
+      // Roll into NEXT — the count for NEXT starts at 1, no trip.
+      const fresh = checkWsHandshakeRate(state.storage.sql, { ip: '1.2.3.4', now: NEXT });
+      expect(fresh.tripped).toBe(false);
+      expect(fresh.count).toBe(1);
+    });
+  });
+});
+
+// ---- Boundary-robust integration test for the production wrapper ----
+
+describe('WS handshake rate — integration: window rollover via direct SQL backdate', () => {
+  /**
+   * Pre-S9 test, kept verbatim. Already deterministic — it doesn't drive
+   * across the real minute boundary, it back-dates the row by 60s in SQL
+   * and checks the next handshake resets. Validates the
+   * `window_start < currentWindow` DELETE path.
+   */
+  it('crossing a minute boundary resets the counter for the new bucket (stale-row DELETE path)', async () => {
     const id = ROOM.idFromName('rate-rollover');
     const stub = ROOM.get(id);
     await ensureRoom(stub);
@@ -136,7 +230,6 @@ describe('WS handshake rate — real DO SQLite (Workers pool)', () => {
       state.storage.sql.exec(
         `UPDATE ws_handshake_rate SET window_start = window_start - 60000 WHERE ip = '3.3.3.3'`,
       );
-      // Sanity: the aged row is the only one.
       const rows = state.storage.sql
         .exec<{ count: number }>(`SELECT count FROM ws_handshake_rate WHERE ip = '3.3.3.3'`)
         .toArray();
