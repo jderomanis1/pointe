@@ -10,6 +10,7 @@ import { VotingStage } from './VotingStage';
 import { HostVacantBanner } from './HostVacantBanner';
 import { ReplacedNotice } from './ReplacedNotice';
 import { AsyncOpenPanel } from './AsyncOpenPanel';
+import { AsyncVoterView } from './AsyncVoterView';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -39,6 +40,15 @@ export function RoomShell({
   // R5.v's COMMIT_STORY moves a revealed story to 'committed' → the queue takes over again.
   const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
 
+  // S9.ii.c3 — branch the voter render when an async window is open. Hosts
+  // and spectators keep the normal flow (host-monitoring lands in c4).
+  const asyncWindowOpen = room?.mode === 'async'
+    && room.asyncWindow !== undefined
+    && room.state === 'active';
+  const showAsyncVoterView = asyncWindowOpen
+    && !isHost
+    && me?.role !== 'spectator';
+
   return (
     <main className="bg-bg text-text min-h-screen font-sans">
       <header className="border-b border-hairline">
@@ -59,7 +69,9 @@ export function RoomShell({
               per-client connection status badge in the header. */}
           <HostVacantBanner />
           <ReplacedNotice />
-          {stories.length === 0 ? (
+          {showAsyncVoterView && room ? (
+            <AsyncVoterView room={room} />
+          ) : stories.length === 0 ? (
             <EmptyState
               slug={slug}
               deck={room?.deck ?? 'fibonacci'}
