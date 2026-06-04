@@ -10,6 +10,7 @@ import { CommitPanel } from './CommitPanel';
 import { LongText } from './LongText';
 import { SplitForm } from './SplitForm';
 import { useSend } from './RoomClientContext';
+import { AiSuggestionPanel } from './AiSuggestionPanel';
 import { HostAiSection } from './HostAiSection';
 import { StoryExternalRef } from './StoryExternalRef';
 
@@ -121,6 +122,22 @@ export function VotingStage({ story }: { story: Story }) {
       {isRevealed ? (
         <>
           <RevealStats storyId={story.id} animateReveal={animateReveal} />
+          {/* S8.iv.c3 — AI panel BELOW the team result. Hierarchy is product
+           *  hierarchy: team estimate is primary, AI is secondary reference.
+           *  Render only when `story.ai` exists, which means:
+           *    • Host: live the moment ai_updated lands (or on snapshot if
+           *      already populated). Armed share button visible until shared.
+           *    • Voter: lands when AI_SHARED arrives (the host-deliberate
+           *      voter exposure) — until then, `story.ai` is undefined and
+           *      this branch renders nothing. AA-1 holds. */}
+          {story.ai ? (
+            <AiSuggestionPanel
+              ai={story.ai}
+              isHost={isHost}
+              revealed
+              onShare={isHost ? () => send('SHARE_AI', { storyId: story.id }) : undefined}
+            />
+          ) : null}
           {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
         </>
       ) : (
