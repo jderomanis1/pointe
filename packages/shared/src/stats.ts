@@ -81,3 +81,19 @@ export function computeRevealStats(deck: string[], votes: Vote[]): RevealStats {
 
   return { median, outliers, avgConfidence, lowConfidence, nonNumeric, numericCount };
 }
+
+/**
+ * S9.i.c3 — the async-close bucketing decision (OQ-016 amendment).
+ *
+ * Pillar 2 catches disagreement; Pillar 2 + Pillar 3 catches disagreement
+ * AND false consensus. Outliers-only would auto-accept the five-5s-at-1.8-
+ * confidence case — exactly the failure mode Pillar 3 exists to catch.
+ * So a story needs discussion if it has an outlier OR its team-average
+ * confidence is below `LOW_CONFIDENCE_THRESHOLD`.
+ *
+ * Pure: feeds the close alarm's bucket-and-persist step; the server stores
+ * the result on `story.needs_discussion` and the client renders from that.
+ */
+export function storyNeedsDiscussion(stats: RevealStats): boolean {
+  return stats.outliers.length > 0 || stats.lowConfidence;
+}
