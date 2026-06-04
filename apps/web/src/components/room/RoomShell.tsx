@@ -9,6 +9,7 @@ import { ShareLink } from './EmptyState';
 import { VotingStage } from './VotingStage';
 import { HostVacantBanner } from './HostVacantBanner';
 import { ReplacedNotice } from './ReplacedNotice';
+import { AsyncOpenPanel } from './AsyncOpenPanel';
 
 function StatusBadge() {
   const status = useRoomStore((s) => s.connection);
@@ -75,6 +76,10 @@ export function RoomShell({
           ) : (
             <>
               {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
+              {/* S9.ii.c2 — host-only async-window setup affordance. Self-gates
+                  on mode + asyncWindow + stories.length; renders nothing for
+                  sync rooms or once a window is open. */}
+              <AsyncOpenPanel />
               <StoryQueue />
               {isHost ? (
                 <div className="mt-2">
