@@ -201,8 +201,9 @@ export const PROTOCOL_VERSION = 1;
 export type ClientMessageType =
   | 'JOIN_ROOM' | 'ADD_STORY' | 'EDIT_STORY' | 'REORDER_STORY' | 'SPLIT_STORY'
   | 'SKIP_STORY' | 'OPEN_VOTING' | 'OPEN_ASYNC' | 'VOTE_CAST' | 'REVEAL_VOTES'
-  | 'COMMIT_STORY' | 'REQUEST_AI' | 'SHARE_AI' | 'RECONNECT_PING'
-  | 'KICK_VOTER' | 'CLOSE_ROOM' | 'CLAIM_HOST' | 'TRANSFER_HOST';
+  | 'COMMIT_STORY' | 'ACCEPT_AGREED' | 'OPEN_DISCUSSION' | 'REQUEST_AI'
+  | 'SHARE_AI' | 'RECONNECT_PING' | 'KICK_VOTER' | 'CLOSE_ROOM'
+  | 'CLAIM_HOST' | 'TRANSFER_HOST';
 
 export type ServerMessageType =
   | 'SNAPSHOT_RESPONSE' | 'DELTA' | 'REVEAL_BROADCAST' | 'STORY_COMMITTED' | 'ERROR'
@@ -263,6 +264,22 @@ export type HostReclaimedPayload = {
   newHostVoterId: string;
   via: 'reconnect' | 'claim' | 'transfer';
 };
+
+/** S9.iii — ACCEPT_AGREED: batch-commit every revealed story whose
+ *  needs_discussion flag is false. Host-only (SI-02). One atomic action;
+ *  consensus needs no per-story ceremony. */
+export type AcceptAgreedPayload = Record<string, never>;
+
+/** S9.iii — OPEN_DISCUSSION { storyId }: re-open a flagged review story
+ *  for a live re-vote. Host-only. Clears prior votes (fresh round runs
+ *  with whoever shows up — present voters only, never absent stale
+ *  votes), sets story → active, sets room → active. */
+export type OpenDiscussionPayload = { storyId: string };
+
+/** S9.iii — OPEN_DISCUSSION + COMMIT_STORY-back-from-review emit this
+ *  generic transition so live clients track the room's state changes.
+ *  Snapshot reads cover reconnect; this is the delta for live updates. */
+export type RoomStateChangedPayload = { state: RoomState };
 
 // JOIN_ROOM + SNAPSHOT_RESPONSE (R2.iii).
 
@@ -355,6 +372,16 @@ export type DeltaChange =
   | {
       kind: 'async_window_closed';
       closedAt: number;
+    }
+  /**
+   * S9.iii — room state changed (review → active on OPEN_DISCUSSION;
+   * active → review on COMMIT_STORY of a re-opened discuss story when
+   * other discuss stories remain). The async_window_* changes carry
+   * domain payload; this is the generic transition delta for live clients.
+   */
+  | {
+      kind: 'room_state_changed';
+      state: RoomState;
     }
   /**
    * S8.iii.c1 — host-only AI content delivery.

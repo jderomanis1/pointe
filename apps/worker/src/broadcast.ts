@@ -103,6 +103,9 @@ export function projectChangesFor(
       case 'async_window_opened':
       case 'async_window_closed':
         return [change];
+      // S9.iii — review/active room transitions are public too.
+      case 'room_state_changed':
+        return [change];
       default: {
         // Unknown future kind — drop defensively so accidental new payloads can't auto-leak.
         const _exhaustive: never = change;
