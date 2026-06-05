@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:e2e": "wrangler dev --port 8787 --ip 127.0.0.1 --local",
     "deploy": "wrangler deploy",
+    "build:dryrun": "wrangler deploy --dry-run --outdir=.dist-prod",
     "typecheck": "tsc --noEmit",
     "test": "vitest run -c vitest.config.ts && vitest run -c vitest.workers.config.ts",
     "test:watch": "vitest"

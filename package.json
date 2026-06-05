@@ -8,11 +8,14 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "pnpm -r exec tsc --noEmit",
-    "format": "prettier --write ."
+    "typecheck": "pnpm -r exec tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
     "eslint": "^10.4.0",
@@ -20,6 +23,8 @@
     "typescript": "^6.0.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["workerd"]
+    "onlyBuiltDependencies": [
+      "workerd"
+    ]
   }
 }

@@ -152,3 +152,8 @@ wrangler.toml.bak
 
 # Project local
 .spec-cache/
+
+# S10 — Playwright artifacts (e2e harness).
+playwright-report/
+test-results/
+.dist-prod/
