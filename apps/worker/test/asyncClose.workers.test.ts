@@ -243,6 +243,20 @@ describe('S9.i.c3 — storyNeedsDiscussion (the pure bucket function)', () => {
       ...baseStats, outliers: [], avgConfidence: 1.8, lowConfidence: true,
     })).toBe(true);
   });
+  it('all-non-numeric (median === null) → true — S10.v.c2 strand-fix', () => {
+    // Everyone voted `?`/`∞` → no numeric median → previously stranded
+    // (no auto-commit because finalEstimate is null; no discuss flag
+    // because outliers + lowConfidence are both false). The fix joins
+    // the discuss pile at the source.
+    expect(storyNeedsDiscussion({
+      median: null,
+      outliers: [],
+      avgConfidence: null,
+      lowConfidence: false,
+      nonNumeric: ['v-1', 'v-2', 'v-3'],
+      numericCount: 0,
+    })).toBe(true);
+  });
 });
 
 // ---- Idempotency -----------------------------------------------------------

@@ -38,6 +38,35 @@ Spec originally said **"10 concurrent WS / IP"** — a *concurrency* cap. v1 imp
 
 The 30/min handshake value is a defensible start (~15× normal use); tunable post-launch. The per-hour numbers (20, 200) are locked from spec.
 
+## 1.5. WebSocket lifecycle — platform mechanism
+
+### Server-initiated closes do NOT auto-fire `webSocketClose` on the DO
+
+Discovered S10.iv (the `drop-voter-sockets` test harness). When the
+Durable Object itself initiates a WS close — `ws.close(code, reason)`
+from a `private` method, an internal route, anywhere on the DO side —
+the workerd runtime does **not** call `webSocketClose(...)` back on the
+parent class. The close handler is the runtime's signal that the *peer*
+disconnected; when the DO is the initiator, the runtime treats the
+state as "DO already knows" and elides the callback.
+
+Consequence — any current or future DO-initiated close must run socket
++ voter cleanup explicitly rather than rely on the close event firing:
+
+- **`drop-voter-sockets` test route (S10.iv)** — already correct: closes
+  each socket AND calls `this.webSocketClose(sock, ...)` directly to run
+  the production `markGoneAndBroadcast` + `voter_left` path. Documented
+  inline as the faithfulness contract.
+- **`KICK_VOTER` (v1.5)** — when shipped, the handler must mirror the
+  same shape: close the socket, then invoke the close handler (or
+  factor `markGoneAndBroadcast` out so both paths share it without the
+  webSocketClose dance).
+- **`CLOSE_ROOM` (v1.5)** — same as above for every socket in the room.
+
+Same shelf as the "KV unfit for sub-minute windows" finding: a platform
+mechanism that's true regardless of when the dependent feature ships,
+so it lives in spec, not a per-sprint carry-forward list.
+
 ## 2. Security invariants
 
 Verified 2026-06-03. SI-01–04 audited with code evidence; non-host regression coverage added where it was missing. SI-05 lands with S8.

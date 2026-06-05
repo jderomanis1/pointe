@@ -206,6 +206,73 @@ describe('checkWsHandshakeRate — across-boundary determinism (the flake, made 
 
 // ---- Boundary-robust integration test for the production wrapper ----
 
+// ---- S10.v.c3 — the route → wrapper → 429 wiring (deterministic) -----------
+
+describe('WS handshake rate — wrapper-coverage (route → wrapper → 429 shape)', () => {
+  /**
+   * S10.v.c3 — closes the gap the pure-helper tests skip: the wrapper
+   * inside Room.fetch('/ws') reads the X-Client-IP header, calls the
+   * helper, and shapes the rejection into a `429 Retry-After: 60` JSON
+   * response. The pure-helper tests cover the trip math; this test
+   * covers the route's response shape on trip.
+   *
+   * Determinism: the wrapper now accepts an explicit `now` (default
+   * `Date.now()`) so the test can pin the window. Pre-seed the counter
+   * to `RL_WS_PER_MIN` at the pinned window, call the wrapper once with
+   * the same pinned `now` — the 31st increment trips, the wrapper
+   * returns the production 429.
+   */
+  it('trips the route response to 429 + Retry-After: 60 when the IP\'s window is full', async () => {
+    const id = ROOM.idFromName('rate-wrapper-coverage');
+    const stub = ROOM.get(id);
+    await ensureRoom(stub);
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
+
+    await runInDurableObject(stub, async (inst, state) => {
+      // Pre-seed: this IP has already burned its budget at window W.
+      state.storage.sql.exec(
+        `INSERT INTO ws_handshake_rate (ip, window_start, count) VALUES (?, ?, ?)`,
+        '9.9.9.9', W, RL_WS_PER_MIN,
+      );
+
+      // Call the wrapper directly with the pinned window. The 31st
+      // increment for this IP at W trips → 429 Response.
+      const req = wsReq('9.9.9.9');
+      // The wrapper is `protected` on Room; reach it the way a subclass
+      // would. Identical call path the /ws route uses internally.
+      const { limited } = (inst as unknown as {
+        checkWsHandshakeRate: (r: Request, now: number) => { limited: Response | null };
+      }).checkWsHandshakeRate(req, W);
+
+      expect(limited).not.toBeNull();
+      const res = limited!;
+      expect(res.status).toBe(429);
+      expect(res.headers.get('Retry-After')).toBe('60');
+      expect(res.headers.get('Content-Type')).toBe('application/json');
+      const body = (await res.json()) as { code: string; message?: string };
+      expect(body.code).toBe('RATE_LIMITED');
+    });
+  });
+
+  it('returns `{ limited: null }` when the IP is below the cap (no premature trip)', async () => {
+    // The other half of the wrapper contract — no trip means a falsy
+    // limited so the /ws fetch handler falls through to the WebSocketPair
+    // accept. Without this the production route would 429 every request.
+    const id = ROOM.idFromName('rate-wrapper-coverage-under');
+    const stub = ROOM.get(id);
+    await ensureRoom(stub);
+    const W = Math.floor(1_700_000_000_000 / MINUTE_MS) * MINUTE_MS;
+
+    await runInDurableObject(stub, async (inst, _state) => {
+      const req = wsReq('5.5.5.5');
+      const result = (inst as unknown as {
+        checkWsHandshakeRate: (r: Request, now: number) => { limited: Response | null };
+      }).checkWsHandshakeRate(req, W);
+      expect(result.limited).toBeNull();
+    });
+  });
+});
+
 describe('WS handshake rate — integration: window rollover via direct SQL backdate', () => {
   /**
    * Pre-S9 test, kept verbatim. Already deterministic — it doesn't drive

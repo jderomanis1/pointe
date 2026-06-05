@@ -448,13 +448,17 @@ export class Room {
    * row are the source of truth now; tests read the row via
    * runInDurableObject when the count needs assertion.)
    */
-  private checkWsHandshakeRate(request: Request): { limited: Response | null } {
+  protected checkWsHandshakeRate(
+    request: Request,
+    now: number = Date.now(),
+  ): { limited: Response | null } {
     const ip = request.headers.get('X-Client-IP') ?? 'unknown';
     // S9 fix: delegate to the pure rateLimit helper with a real-clock `now`.
-    // Tests bypass this wrapper entirely and call the helper directly with a
-    // deterministic `now` — that's how the trip-at-31 assertion becomes
-    // independent of where in the wall-clock minute the burst runs.
-    const result = checkWsHandshakeRate(this.sql, { ip, now: Date.now() });
+    // S10.v.c3: `now` is also an explicit (defaulted) parameter on the wrapper
+    // — a wrapper-coverage test pins it so the route → wrapper → 429
+    // wiring is deterministic, independent of where in the wall-clock minute
+    // the test runs. Production callers use the default (Date.now()).
+    const result = checkWsHandshakeRate(this.sql, { ip, now });
     if (!result.tripped) return { limited: null };
     const body = {
       code: 'RATE_LIMITED',

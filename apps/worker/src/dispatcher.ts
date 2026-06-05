@@ -1003,8 +1003,16 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
 
   const snapStories: SnapshotStory[] = [];
   for (const story of active) {
-    // Anti-anchoring: active stories carry NO votes (each independently).
-    snapStories.push(withAiProjection(sql, { ...story, votes: [] }, isHost));
+    // Anti-anchoring: active stories carry only the recipient's OWN vote;
+    // every other voter's value is stripped. Doc 2 §8 — "active-story votes
+    // are filtered out except for the voter who cast it." The delta path
+    // (`vote_value`) routes the caster's own value to the caster on the
+    // initial cast; this makes the snapshot path agree, so a rebuild on
+    // reconnect restores the cast voter's own pick to their UI (S10.v.c1).
+    const ownVotes = state.votes.filter(
+      (v) => v.storyId === story.id && v.voterId === voterId,
+    );
+    snapStories.push(withAiProjection(sql, { ...story, votes: ownVotes }, isHost));
   }
   for (const story of revealed) {
     snapStories.push(withAiProjection(
