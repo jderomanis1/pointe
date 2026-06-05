@@ -20,13 +20,10 @@
  *      the prod worker unchanged.
  */
 import type { DurableObjectState, WebSocket } from '@cloudflare/workers-types';
-import type { AISuggestion, DeltaChange, Envelope } from '@pointe/shared';
-import { PROTOCOL_VERSION } from '@pointe/shared';
+import type { AISuggestion } from '@pointe/shared';
 import prodWorker, { Room as ProdRoom, type Env } from './worker';
 import { maybeHandleTestRoute } from './testRoutes';
 import { upsertAiSuggestion } from './ai';
-import { getHostVoterId } from './operations';
-import { getAttachment } from './broadcast';
 
 /**
  * DevRoom — Room subclass with one extra internal fetch route. Constructor
@@ -76,9 +73,14 @@ export class Room extends ProdRoom {
    * S10.ii — stub the host-private "AI ready" arrival without calling
    * Anthropic. Resolves the room's currently-active story (the same
    * branch a real REQUEST_AI handler targets), upserts a deterministic
-   * `ready` ai_suggestion (shared=0), and emits the host-only ai_updated
-   * DELTA. The production projection logic still gates voter exposure:
-   * voters only see this once SHARE_AI broadcasts.
+   * `ready` ai_suggestion (shared=0), and delegates delivery to the
+   * production `sendAiUpdatedToHost`.
+   *
+   * Vacuity-guard contract: the stub fabricates only the AI payload.
+   * The change shape, envelope construction, and host-only socket
+   * filter all come from the production methods on `Room` (made
+   * `protected` for this call). Voters' non-receipt is therefore
+   * enforced by production code — not a parallel stub filter.
    *
    * 404 if no active story exists — the caller (E2E spec) sequences
    * `OPEN_VOTING` before this route, so this is a programming error
@@ -114,28 +116,12 @@ export class Room extends ProdRoom {
       shared: false,
     });
     const ai: AISuggestion = { state: 'ready', ...payload, shared: false };
-
-    // Host-only DELTA — same shape Room.sendAiUpdatedToHost emits. We
-    // can't call that method (private on the parent), so re-build the
-    // tiny send loop here: resolve host voterId, walk attached sockets,
-    // send to the ones bound to that voter.
-    const hostId = getHostVoterId(sql);
-    if (hostId) {
-      const change: DeltaChange = { kind: 'ai_updated', storyId, ai };
-      const envelope: Envelope<{ changes: DeltaChange[] }> = {
-        v: PROTOCOL_VERSION,
-        type: 'DELTA',
-        id: crypto.randomUUID(),
-        at: now,
-        payload: { changes: [change] },
-      };
-      const raw = JSON.stringify(envelope);
-      for (const sock of this.devState.getWebSockets()) {
-        const att = getAttachment(sock);
-        if (att?.voterId !== hostId) continue;
-        try { sock.send(raw); } catch { /* socket closing */ }
-      }
-    }
+    // Production delivery path — same function the real REQUEST_AI
+    // completion calls in `runAiCall`. This is the load-bearing line
+    // for AA-1 in the E2E suite: the host-only filter that keeps the
+    // ai_updated change off voter sockets is the one inside
+    // `sendToHostSockets`, not a copy in this stub.
+    this.sendAiUpdatedToHost(storyId, ai);
     return new Response(JSON.stringify({ ok: true, storyId }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

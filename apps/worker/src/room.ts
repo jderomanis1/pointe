@@ -178,8 +178,13 @@ export class Room {
    * the current `room.host_voter_id`. A host with multiple tabs gets it on
    * each; if no live host socket exists, nothing is sent (the snapshot
    * covers reconnect). Host id is resolved LIVE — survives host transfer.
+   *
+   * `protected` (not private) so the S10.ii dev-entry subclass can call
+   * this directly when stubbing an AI completion — the voter's
+   * non-receipt is then enforced by THIS production code, not by a
+   * parallel filter inside the stub.
    */
-  private sendToHostSockets<T>(type: ServerMessageType, payload: T): void {
+  protected sendToHostSockets<T>(type: ServerMessageType, payload: T): void {
     const hostId = getHostVoterId(this.sql);
     if (!hostId) return;
     const env: Envelope<T> = {
@@ -264,8 +269,13 @@ export class Room {
    * S8.iii.c1 — host-only DELTA pushing the AI suggestion content. Frontend
    * reducer applies `ai_updated` to set `story.ai`. Voters get nothing on
    * AI completion (the AA-1 timing-leak guarantee).
+   *
+   * `protected` (not private) so the S10.ii dev-entry subclass calls THIS
+   * function when stubbing a `ready` AI arrival — the change shape +
+   * envelope + host-only delivery are all the production code, not a
+   * parallel copy in the stub. The stub fabricates only the AI payload.
    */
-  private sendAiUpdatedToHost(storyId: string, ai: AISuggestion): void {
+  protected sendAiUpdatedToHost(storyId: string, ai: AISuggestion): void {
     const change: DeltaChange = { kind: 'ai_updated', storyId, ai };
     this.sendToHostSockets('DELTA', { changes: [change] });
   }
