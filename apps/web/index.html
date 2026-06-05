@@ -8,5 +8,23 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!--
+      S10.vii — Cloudflare Web Analytics beacon (cookieless, aggregate-only,
+      no PII per Doc 2 §17). Documented snippet shape from
+      https://developers.cloudflare.com/web-analytics/get-started/ —
+      `beacon.min.js` is the cookieless variant; it does NOT set or read
+      cookies, and reports aggregate visit/page-view counts to the CF
+      dashboard. Token below is the public beacon token (NOT a secret);
+      it's safe to commit. Replace BEACON_TOKEN_PLACEHOLDER with the
+      real token from the CF Web Analytics dashboard (one-step config:
+      Joe creates a property in CF dashboard → copies the token here).
+      Until then the script loads but reports no data — no privacy or
+      runtime impact either way.
+    -->
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "BEACON_TOKEN_PLACEHOLDER"}'
+    ></script>
   </body>
 </html>

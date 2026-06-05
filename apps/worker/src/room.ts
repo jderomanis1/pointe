@@ -21,6 +21,7 @@ import {
 import {
   getAiSuggestion, putAiCache, requestCeruSuggestion, upsertAiSuggestion,
 } from './ai';
+import { recordAiRequested } from './metrics';
 
 /** Grace window between host-disconnect and the host_vacant transition. */
 export const HOST_VACANT_GRACE_MS = 30_000;
@@ -170,6 +171,10 @@ export class Room {
         // there's outstanding I/O — same shape as cancelTasksByType above.
         void this.runAiCall(p);
       },
+      // S10.vii — aggregate AI opt-in count. Writes ONLY the event name
+      // (no story id, no room id, no voter id). Missing METRICS binding
+      // is a silent no-op — telemetry must never fail a request.
+      recordAiRequested: () => recordAiRequested(this.env),
     };
   }
 

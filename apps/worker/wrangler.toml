@@ -18,3 +18,13 @@ zone_name = "pointe.team"
 [[kv_namespaces]]
 binding = "POINTE_SLUGS"
 id = "2324d231abff45ff8c4d7b30560f2ff5"
+
+# S10.vii — Cloudflare Analytics Engine. The dataset receives the two
+# Doc 3 dials (room_created with `mode` dimension, ai_requested with no
+# dimensions). Privacy-clean by design — AE stores aggregates only, no
+# row-level retrieval; the metrics helper in src/metrics.ts is the lock
+# that no slug/voterId can ride along. Dataset name is the queryable
+# table in the CF dashboard.
+[[analytics_engine_datasets]]
+binding = "METRICS"
+dataset = "pointe_metrics"

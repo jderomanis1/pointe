@@ -1,4 +1,4 @@
-import type { KVNamespace } from '@cloudflare/workers-types';
+import type { AnalyticsEngineDataset, KVNamespace } from '@cloudflare/workers-types';
 import type {
   ApiError,
   CreateRoomRequest,
@@ -14,6 +14,7 @@ import {
   checkWindowedIpLimit, clientIp, HOUR_MS,
   RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR,
 } from './rateLimit';
+import { recordRoomCreated } from './metrics';
 
 export { Room };
 
@@ -28,6 +29,14 @@ export interface Env {
    * runtime impact.
    */
   ANTHROPIC_API_KEY?: string;
+  /**
+   * S10.vii — Cloudflare Analytics Engine dataset for the two aggregate
+   * Doc 3 dials (room_created, ai_requested). Optional binding: dev /
+   * preview without the binding gets no telemetry, not a crash —
+   * telemetry must never fail a request (Doc 2 §17 + the "no PII"
+   * privacy contract is enforced by the typed helper in metrics.ts).
+   */
+  METRICS?: AnalyticsEngineDataset;
 }
 
 const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
@@ -119,6 +128,12 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // S10.vii — telemetry: one aggregate event covers both Doc 3 dials
+  // (room-create count + async-adoption rate as async/total at query time).
+  // The metrics helper writes ONLY the `mode` dimension; no slug, no
+  // hostVoterId, no IP. Fire-and-forget — failure is silent (§17).
+  recordRoomCreated(env, mode);
 
   const host = new URL(request.url).host;
   const responseBody: CreateRoomResponse = {

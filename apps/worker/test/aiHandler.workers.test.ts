@@ -469,6 +469,47 @@ describe('S8.ii.a timeout test — eyeball', () => {
   });
 });
 
+// S10.vii — the dispatcher actually invokes recordAiRequested on the
+// REQUEST_AI accept path. Privacy contract is locked separately in
+// test/metrics.test.ts; this is the wire-up check.
+describe('S10.vii — recordAiRequested wire-up', () => {
+  it('handleRequestAi calls recordAiRequested once for a cache-miss fresh REQUEST_AI', async () => {
+    await withRoom((sql) => {
+      seedRoomActiveStory(sql);
+      const sockHost = fakeWs({ voterId: HOST_ID, role: 'host' });
+      const { orch } = makeOrch({ sql, hostId: HOST_ID, sockets: [sockHost] });
+      let metricCalls = 0;
+      const orchWithMetric: AiOrchestrator = {
+        ...orch,
+        recordAiRequested: () => { metricCalls++; },
+      };
+      handleMessage(sql, sockHost.ws, requestAiEnv(), undefined, undefined, undefined, orchWithMetric);
+      expect(metricCalls).toBe(1);
+    });
+  });
+
+  it('story-state guard rejection does NOT call recordAiRequested', async () => {
+    // STORY_NOT_ELIGIBLE_FOR_AI exits before the metric hook — failed
+    // attempts to opt a revealed/committed story into AI shouldn't
+    // inflate the opt-in count.
+    await withRoom((sql) => {
+      seedRoomActiveStory(sql);
+      // Reveal the story so REQUEST_AI returns STORY_NOT_ELIGIBLE_FOR_AI.
+      revealVotes(sql, { storyId: STORY_ID, now: NOW + 10 });
+      const sockHost = fakeWs({ voterId: HOST_ID, role: 'host' });
+      const { orch } = makeOrch({ sql, hostId: HOST_ID, sockets: [sockHost] });
+      let metricCalls = 0;
+      const orchWithMetric: AiOrchestrator = {
+        ...orch,
+        recordAiRequested: () => { metricCalls++; },
+      };
+      const out = handleMessage(sql, sockHost.ws, requestAiEnv(), undefined, undefined, undefined, orchWithMetric);
+      expect(out[0]?.type).toBe('ERROR');
+      expect(metricCalls).toBe(0);
+    });
+  });
+});
+
 // Reference some imports to avoid unused-warning churn — getAiCache is
 // exercised via the orchestrator's putAiCache path, but a direct read
 // verifies the hit-roundtrip on the cache path too.
