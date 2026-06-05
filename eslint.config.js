@@ -114,12 +114,21 @@ export default [
   // S10.i — Playwright E2E suite. Tests run in a Node + Chromium pair;
   // the spec files themselves are Node code that drives the browser,
   // so the Node globals (URL, console) plus Playwright's test/expect.
+  // Browser globals (document, getComputedStyle, HTMLElement, …) are
+  // allowed because `page.evaluate(() => { … })` runs its callback in
+  // the page context — the reference is in source but the call site is
+  // the browser. Tagged as readonly to keep lint signal on misuse.
   {
     files: ['e2e/**/*.ts'],
     languageOptions: {
       globals: {
         ...baseGlobals,
         URL: 'readonly',
+        document: 'readonly',
+        getComputedStyle: 'readonly',
+        HTMLElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLButtonElement: 'readonly',
       },
     },
   },
