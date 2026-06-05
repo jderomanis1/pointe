@@ -370,3 +370,38 @@ describe('applyAiShared — S8.iv.c2 (the host-deliberate voter exposure)', () =
     expect(state).toBe(before); // identity preserved → React shallow-equal short-circuit OK
   });
 });
+
+// ---- applyChange — async lifecycle ----
+
+describe('applyChange — async_window_closed (S10.iii fast guard)', () => {
+  it('clears asyncWindow + sets state=review in one shot', () => {
+    // Seed a room that opened an async window (state=active, asyncWindow set).
+    const opened = applyChange(
+      { ...initialState, room: { ...ROOM, mode: 'async', state: 'lobby' } },
+      {
+        kind: 'async_window_opened',
+        opensAt: 1_000,
+        closesAt: 1_000_000,
+        storyIds: [],
+      },
+    );
+    expect(opened.room?.state).toBe('active');
+    expect(opened.room?.asyncWindow).toEqual({ opensAt: 1_000, closesAt: 1_000_000 });
+
+    // Close the window. The fast-guard contract: both `state` flips to
+    // review AND `asyncWindow` drops to undefined in the same reducer call.
+    // RoomShell's `asyncWindowOpen` gate
+    // (mode==='async' && asyncWindow!==undefined && state==='active')
+    // depends on the second half — leaving asyncWindow set would re-trigger
+    // AsyncVoterView on the next OPEN_DISCUSSION-driven review→active flip.
+    const closed = applyChange(opened, { kind: 'async_window_closed', closedAt: 1_500 });
+    expect(closed.room?.state).toBe('review');
+    expect(closed.room?.asyncWindow).toBeUndefined();
+  });
+
+  it('no-room state is a silent no-op', () => {
+    const before = initialState;
+    const after = applyChange(before, { kind: 'async_window_closed', closedAt: 1 });
+    expect(after).toBe(before);
+  });
+});

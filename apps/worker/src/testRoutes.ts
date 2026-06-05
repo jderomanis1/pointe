@@ -28,6 +28,23 @@
  *     re-uses the same storage primitive (`upsertAiSuggestion`) and the
  *     same host-only DELTA shape, so the AA-1 projection logic + the
  *     reveal/share UI still exercise their production paths.
+ *
+ *   POST /api/__test/fire-vacancy/:slug
+ *     S10.iv — collapses the 30s host_vacant grace window. Sets the at-time
+ *     of every pending `host_vacant` scheduled task to 0 and invokes the
+ *     DO alarm. The same production handler (`handleHostVacantFire`) runs
+ *     — the only thing the test route fakes is the clock. Used by the
+ *     vacancy/claim E2E so the suite never wall-clock-waits on the grace.
+ *
+ *   POST /api/__test/drop-voter-sockets/:slug
+ *     S10.iv — server-side close on every WS NOT bound to the room's host.
+ *     Simulates a network blip the way a real packet-loss would: existing
+ *     voter sockets close, the same production webSocketClose handler runs
+ *     (marks voter 'left', broadcasts voter_left), and the client-side
+ *     WSClient's exponential-backoff reconnect path kicks in — JOIN_ROOM
+ *     re-issued with resumeVoterId, server rebinds the same voter. Used
+ *     instead of Playwright's `setOffline(true)` because the latter
+ *     wouldn't close the WS until the 25s keepalive failed.
  */
 import type { DurableObjectNamespace, KVNamespace } from '@cloudflare/workers-types';
 import { lookupSlug } from './slug';
@@ -83,6 +100,21 @@ export async function maybeHandleTestRoute(
     return await injectAiReady(slug, env);
   }
 
+  // POST /api/__test/fire-vacancy/:slug — collapse the 30s host_vacant grace.
+  const fireVacancyMatch = url.pathname.match(/^\/api\/__test\/fire-vacancy\/([a-z-]+-\d+)$/);
+  if (fireVacancyMatch && request.method === 'POST') {
+    const slug = fireVacancyMatch[1];
+    return await fireHostVacancy(slug, env);
+  }
+
+  // POST /api/__test/drop-voter-sockets/:slug — server-side close on every
+  // non-host WS, the deterministic stand-in for a voter network blip.
+  const dropMatch = url.pathname.match(/^\/api\/__test\/drop-voter-sockets\/([a-z-]+-\d+)$/);
+  if (dropMatch && request.method === 'POST') {
+    const slug = dropMatch[1];
+    return await dropVoterSockets(slug, env);
+  }
+
   return json({ code: 'TEST_ROUTE_NOT_FOUND', message: `${request.method} ${url.pathname}` }, 404);
 }
 
@@ -125,6 +157,54 @@ async function injectAiReady(slug: string, env: TestRoutesEnv): Promise<Response
   }
   const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
   const inner = await stub.fetch(new Request('https://do/__test/inject-ai-ready', {
+    method: 'POST',
+  }));
+  return new Response(await inner.text(), {
+    status: inner.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Resolve the slug → DO stub, then call a DevRoom-only internal route that
+ * collapses the 30s host_vacant grace window: sets `at = 0` on every
+ * pending host_vacant scheduled task and invokes the alarm. The production
+ * `handleHostVacantFire` runs — eligibility checks (state, hostVoterId
+ * unchanged, host still absent) are intact; the only thing the test fakes
+ * is the wall-clock.
+ *
+ * Idempotent — a room with no pending vacancy task or one that's no longer
+ * eligible (host came back, room closed) returns 200 with no side effects,
+ * matching the alarm's own semantics.
+ */
+async function fireHostVacancy(slug: string, env: TestRoutesEnv): Promise<Response> {
+  const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
+  if (roomId === null) {
+    return json({ code: 'SLUG_NOT_FOUND', message: 'Room not found' }, 404);
+  }
+  const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
+  const inner = await stub.fetch(new Request('https://do/__test/fire-host-vacancy', {
+    method: 'POST',
+  }));
+  return new Response(await inner.text(), {
+    status: inner.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Resolve the slug → DO stub, then call a DevRoom-only internal route that
+ * closes every WS NOT bound to the host. The production webSocketClose
+ * handler runs for each (mark voter 'left', broadcast voter_left). The
+ * client-side WSClient's reconnect loop takes over from there.
+ */
+async function dropVoterSockets(slug: string, env: TestRoutesEnv): Promise<Response> {
+  const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
+  if (roomId === null) {
+    return json({ code: 'SLUG_NOT_FOUND', message: 'Room not found' }, 404);
+  }
+  const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
+  const inner = await stub.fetch(new Request('https://do/__test/drop-voter-sockets', {
     method: 'POST',
   }));
   return new Response(await inner.text(), {

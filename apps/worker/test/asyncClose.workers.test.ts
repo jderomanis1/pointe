@@ -153,8 +153,18 @@ describe('S9.i.c3 — close alarm: auto-reveal + bucket (OQ-016)', () => {
       expect(byId['st-lowconf'].needs_discussion).toBe(1);
 
       // Room transitioned to 'review'.
-      const room2 = sql.exec<{ state: string }>(`SELECT state FROM room LIMIT 1`).toArray()[0];
+      const room2 = sql.exec<{ state: string; async_window: string | null }>(
+        `SELECT state, async_window FROM room LIMIT 1`,
+      ).toArray()[0];
       expect(room2.state).toBe('review');
+
+      // S10.iii fast guard — async_window is cleared at close. Leaving the
+      // JSON column set across review would re-trigger AsyncVoterView on the
+      // subsequent OPEN_DISCUSSION-driven `review → active` flip (RoomShell's
+      // asyncWindowOpen gate is mode+asyncWindow+state==='active'). The S10.iii
+      // E2E proves the rendered consequence; this is the regression guard at
+      // the per-push gate.
+      expect(room2.async_window).toBeNull();
 
       // The voter received the broadcast with all three votes_revealed + a
       // trailing async_window_closed.
