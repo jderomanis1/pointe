@@ -7,7 +7,7 @@ function ConnectionDot({ state }: { state: Voter['connectionState'] }) {
   const cls = state === 'connected' ? 'bg-success'
     : state === 'reconnecting' ? 'bg-warning'
     : 'bg-text-muted';
-  return <span aria-label={state} className={cn('inline-block h-2 w-2 rounded-pill shrink-0', cls)} />;
+  return <span role="img" aria-label={state} className={cn('inline-block h-2 w-2 rounded-pill shrink-0', cls)} />;
 }
 
 function VoterRow({ v, isMe }: { v: Voter; isMe: boolean }) {
@@ -20,7 +20,9 @@ function VoterRow({ v, isMe }: { v: Voter; isMe: boolean }) {
       <span className={cn('text-body truncate', v.connectionState === 'left' ? 'text-text-muted' : 'text-text')}>
         {v.displayName}
       </span>
-      {isMe ? <span className="text-caption text-text-muted">(you)</span> : null}
+      {/* S10.vi: text-text-secondary, not text-text-muted — AA 4.5:1 on the
+       *  isMe bg-fill row. Same token swap pattern as VoterSeats / CommitPanel. */}
+      {isMe ? <span className="text-caption text-text-secondary">(you)</span> : null}
       <span className="ml-auto flex items-center gap-1">
         {v.role === 'host' ? <Badge variant="accent">host</Badge> : null}
         {v.role === 'spectator' ? <Badge variant="neutral">spectator</Badge> : null}

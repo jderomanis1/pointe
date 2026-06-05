@@ -42,7 +42,7 @@ export function CommitPanel({ story }: { story: Story }) {
     <section className="flex flex-col gap-4 border-t border-hairline pt-6">
       <div>
         <h3 className="text-meta text-text-secondary mb-2">Final estimate</h3>
-        <p className="text-meta text-text-muted mb-3">
+        <p className="text-meta text-text-secondary mb-3">
           {median
             ? 'Defaulting to the median — pick a different card if the discussion landed elsewhere.'
             : 'No numeric median. Pick the value the team agreed on.'}
