@@ -95,26 +95,74 @@ describe('<AiSuggestionPanel /> — pending variant (defensive)', () => {
 });
 
 describe('<AiSuggestionPanel /> — What\'s CERU popover (OQ-001)', () => {
+  // S10 a11y-keyboard §3 (resolved A): demoted from `role="dialog"`
+  // to a disclosure pattern (labelled region + `aria-expanded`/
+  // `aria-controls` on the trigger). The test assertions follow that
+  // demotion — we look up the region by its accessible name and the
+  // trigger by `aria-expanded` state, not by a `dialog` role.
   it('opens on click and renders five lines of educational copy', async () => {
     const user = userEvent.setup();
     render(<AiSuggestionPanel ai={READY} />);
-    expect(screen.queryByRole('dialog', { name: /What is CERU/i })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /What['’]s CERU\?/i }));
-    const dialog = screen.getByRole('dialog', { name: /What is CERU/i });
-    expect(dialog).toBeInTheDocument();
-    expect(dialog.textContent).toMatch(/Mike Cohn['’]s four dimensions/);
-    expect(dialog.textContent).toMatch(/Complexity — how tangled/);
-    expect(dialog.textContent).toMatch(/Effort — how much volume/);
-    expect(dialog.textContent).toMatch(/Risk — what could go wrong/);
-    expect(dialog.textContent).toMatch(/Unknowns — what isn['’]t decided/);
+    const trigger = screen.getByRole('button', { name: /What['’]s CERU\?/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: /What['’]s CERU/i })).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const region = screen.getByRole('region', { name: /What['’]s CERU/i });
+    expect(region).toBeInTheDocument();
+    expect(region.textContent).toMatch(/Mike Cohn['’]s four dimensions/);
+    expect(region.textContent).toMatch(/Complexity — how tangled/);
+    expect(region.textContent).toMatch(/Effort — how much volume/);
+    expect(region.textContent).toMatch(/Risk — what could go wrong/);
+    expect(region.textContent).toMatch(/Unknowns — what isn['’]t decided/);
   });
 
   it('closes when the close (X) button is clicked', async () => {
     const user = userEvent.setup();
     render(<AiSuggestionPanel ai={READY} />);
-    await user.click(screen.getByRole('button', { name: /What['’]s CERU\?/i }));
+    const trigger = screen.getByRole('button', { name: /What['’]s CERU\?/i });
+    await user.click(trigger);
     await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog', { name: /What is CERU/i })).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: /What['’]s CERU/i })).not.toBeInTheDocument();
+  });
+
+  // S10 a11y-keyboard §3: re-clicking the trigger toggles the
+  // disclosure closed (native button behaviour + `aria-expanded`).
+  it('closes when the trigger is clicked while open', async () => {
+    const user = userEvent.setup();
+    render(<AiSuggestionPanel ai={READY} />);
+    const trigger = screen.getByRole('button', { name: /What['’]s CERU\?/i });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: /What['’]s CERU/i })).not.toBeInTheDocument();
+  });
+
+  // S10 a11y-keyboard §3: Escape closes as the cheap nice-to-have.
+  // (No focus-trap, no focus-move-into — those are modal behaviours
+  // the demote deliberately leaves off.)
+  it('closes when Escape is pressed while open', async () => {
+    const user = userEvent.setup();
+    render(<AiSuggestionPanel ai={READY} />);
+    const trigger = screen.getByRole('button', { name: /What['’]s CERU\?/i });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Escape}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: /What['’]s CERU/i })).not.toBeInTheDocument();
+  });
+
+  it('trigger declares `aria-controls` pointing at the region', async () => {
+    const user = userEvent.setup();
+    render(<AiSuggestionPanel ai={READY} />);
+    const trigger = screen.getByRole('button', { name: /What['’]s CERU\?/i });
+    const controlsId = trigger.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+    await user.click(trigger);
+    const region = screen.getByRole('region', { name: /What['’]s CERU/i });
+    expect(region).toHaveAttribute('id', controlsId);
   });
 });
 

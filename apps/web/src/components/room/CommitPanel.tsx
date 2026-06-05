@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Story } from '@pointe/shared';
 import { resolveDeck } from '@pointe/shared';
 import { useRoomStore } from '../../store/roomStore';
@@ -25,6 +25,27 @@ export function CommitPanel({ story }: { story: Story }) {
   const median = reveal?.stats?.median ?? null;
   const [picked, setPicked] = useState<string | null>(median);
 
+  // S10 a11y-keyboard §2 (resolved: REVEAL→Commit only, host hot-path).
+  // On the host's transition from `active` → `revealed` (which is when
+  // this panel mounts — host view renders CommitPanel only in the
+  // revealed state), move focus to the Commit estimate primary so the
+  // host's next action is already in hand. Keyed on `story.id` so a
+  // story-change re-fires the effect once, not on unrelated re-renders.
+  // Graceful no-op when the Commit button is disabled (zero-vote /
+  // no-numeric-median edge: the median pre-select is null, picked is
+  // null, button is `disabled` — focusing a disabled element is a
+  // no-op in browsers, and we additionally gate on the ref existing).
+  // Async-close→review and story-change focus targets are v1.5
+  // (see spec/a11y-keyboard-checklist.md §Deferred to v1.5).
+  const commitRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const btn = commitRef.current;
+    if (btn && !btn.disabled) btn.focus();
+    // Intentionally keyed on story.id only — the per-transition fire is
+    // "this panel mounted for THIS story." A median change shouldn't
+    // re-grab focus from the user's working flow.
+  }, [story.id]);
+
   if (!room) return null;
   const deck = resolveDeck(room.deck, room.customDeck);
   const canCommit = picked !== null;
@@ -50,7 +71,7 @@ export function CommitPanel({ story }: { story: Story }) {
         <VoteCards deck={deck} selected={picked} onSelect={setPicked} />
       </div>
       <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="primary" onClick={commit} disabled={!canCommit}>
+        <Button ref={commitRef} variant="primary" onClick={commit} disabled={!canCommit}>
           Commit estimate
         </Button>
         <Button variant="secondary" onClick={reopen}>

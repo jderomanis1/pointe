@@ -53,6 +53,7 @@ const browserGlobals = {
   Element: 'readonly',
   Event: 'readonly',
   CustomEvent: 'readonly',
+  KeyboardEvent: 'readonly',
   setTimeout: 'readonly',
   clearTimeout: 'readonly',
   setInterval: 'readonly',
