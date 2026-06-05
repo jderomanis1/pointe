@@ -5,8 +5,10 @@
  *
  *   room_created (with mode dimension) → room-create count + async-adoption
  *     rate. Adoption rate is async / total at query time.
- *   ai_requested                       → AI opt-in rate. Rate's denominator
- *     comes from room_created counts; computed at query time.
+ *   ai_requested                       → AI opt-in rate. Counts validated
+ *     host intent, recorded BEFORE the rate-limit decision (see
+ *     `recordAiRequested` for the full counting contract). Rate's
+ *     denominator comes from room_created counts; computed at query time.
  *
  * Privacy (Doc 2 §17) is the hard constraint: no PII, no per-user or
  * per-room identifiers, no cookies. The shape of each writeDataPoint
@@ -54,6 +56,19 @@ export function recordRoomCreated(env: MetricsEnv, mode: RoomMode): void {
  * denominator comes from `room_created` counts at query time. Resist the
  * over-instrumentation reflex (this would be where a story id / room id
  * would creep in "to be useful later" — don't add it).
+ *
+ * **Counting contract: validated host intent, recorded BEFORE the
+ * rate-limit decision.** Concretely the call site (dispatcher.ts
+ * `handleRequestAi`) fires this AFTER `requireHost`, payload-shape, and
+ * the story-state guard reject — and BEFORE `checkAiRateLimit`. So the
+ * count measures *"the host chose AI for an eligible story"*, not
+ * *"the infra let the call through"*. Idempotent silent-absorb (a call
+ * already in flight for this story) does NOT count, because that path
+ * returns before reaching here.
+ *
+ * Doc 3's "20% of stories" is loose enough to support either reading
+ * (intent vs delivered); we lock the intent reading explicitly so the
+ * dashboard label and the code agree.
  */
 export function recordAiRequested(env: MetricsEnv): void {
   const m = env.METRICS;

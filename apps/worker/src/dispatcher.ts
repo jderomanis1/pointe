@@ -803,30 +803,34 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
     )];
   }
 
-  // S10.vii — telemetry: host opted a story into AI. Counted once per
-  // accepted REQUEST_AI that gets past the story guard, except the
-  // silent-absorb duplicate (in-flight pending) below. Cache hits, ready
-  // re-sends, and fresh calls all count — they're each a host intent
-  // signal. The metric helper writes no story id, no room id, no voter id.
+  // Idempotency on existing suggestion — in-flight silent-absorb runs
+  // FIRST so it gates the metric below (this REQUEST_AI is a duplicate
+  // of one already counted; counting it again would double-bill intent).
+  const existing = getAiSuggestion(ctx.sql, p.storyId);
+  if (existing && existing.state === 'pending') {
+    // A call is already in flight — silently absorb, do not count.
+    return [];
+  }
+
+  // S10.vii — telemetry: validated host intent, recorded BEFORE the
+  // rate-limit decision. Counts measure "host chose AI for an eligible
+  // story", not "infra let the call through". The call is past
+  // requireHost, payload-shape, story-state guard, and in-flight dedup;
+  // it is NOT past the rate-limit gate (see checkAiRateLimit below).
+  // Cache hits and ready re-sends DO count — both are fresh host
+  // intent signals (the host clicked the button). The metric helper
+  // writes no story id, no room id, no voter id.
   ctx.aiOrchestrator.recordAiRequested?.();
 
-  // Idempotency on existing suggestion.
-  const existing = getAiSuggestion(ctx.sql, p.storyId);
-  if (existing) {
-    if (existing.state === 'pending') {
-      // A call is already in flight — silently absorb.
-      return [];
-    }
-    if (existing.state === 'ready') {
-      // Re-send notification; no new work, no rate consume.
-      ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
-      // Host-only DELTA carrying the content (S8.iii.c1) — the host store
-      // applies `ai_updated` to set `story.ai`. Voters get nothing.
-      sendAiUpdatedToHost(ctx, p.storyId, existing);
-      return [];
-    }
-    // existing.state === 'failed' → fall through and try again.
+  if (existing && existing.state === 'ready') {
+    // Re-send notification; no new work, no rate consume.
+    ctx.aiOrchestrator.sendToHost('STORY_AI_READY', { storyId: p.storyId });
+    // Host-only DELTA carrying the content (S8.iii.c1) — the host store
+    // applies `ai_updated` to set `story.ai`. Voters get nothing.
+    sendAiUpdatedToHost(ctx, p.storyId, existing);
+    return [];
   }
+  // existing == null or existing.state === 'failed' → fall through and try.
 
   // Resolve deck for cache key + the eventual API call.
   const roomRow = ctx.sql

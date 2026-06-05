@@ -508,6 +508,43 @@ describe('S10.vii — recordAiRequested wire-up', () => {
       expect(metricCalls).toBe(0);
     });
   });
+
+  it('in-flight silent-absorb (duplicate while pending) does NOT call recordAiRequested', async () => {
+    // The counting contract is "validated host intent, dedup'd, before
+    // the rate-limit decision". A REQUEST_AI that lands while a prior
+    // call is still pending for the same story is the same intent —
+    // counting it twice would double-bill the dashboard. The first
+    // call counts (asserted in the cache-miss test above); the
+    // second is silently absorbed AND does not increment.
+    await withRoom((sql) => {
+      seedRoomActiveStory(sql);
+      const sockHost = fakeWs({ voterId: HOST_ID, role: 'host' });
+      // hold: true leaves the ai_suggestion row at 'pending' — simulates
+      // an in-flight upstream call between the two REQUEST_AI envelopes.
+      const { orch } = makeOrch({
+        sql, hostId: HOST_ID, sockets: [sockHost], hold: true,
+      });
+      let metricCalls = 0;
+      const orchWithMetric: AiOrchestrator = {
+        ...orch,
+        recordAiRequested: () => { metricCalls++; },
+      };
+      // First REQUEST_AI: fresh, fires the metric, leaves row pending.
+      handleMessage(
+        sql, sockHost.ws, requestAiEnv(STORY_ID, 'r-1'),
+        undefined, undefined, undefined, orchWithMetric,
+      );
+      expect(metricCalls).toBe(1);
+      // Second REQUEST_AI for the same story while still pending:
+      // silent-absorb returns [] and MUST NOT increment again.
+      const out = handleMessage(
+        sql, sockHost.ws, requestAiEnv(STORY_ID, 'r-2'),
+        undefined, undefined, undefined, orchWithMetric,
+      );
+      expect(out).toEqual([]);
+      expect(metricCalls).toBe(1);
+    });
+  });
 });
 
 // Reference some imports to avoid unused-warning churn — getAiCache is
