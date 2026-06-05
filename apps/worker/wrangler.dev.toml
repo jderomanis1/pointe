@@ -32,3 +32,9 @@ id = "kv_local_dev"
 [vars]
 # Dev-only default. CI sets this via the workflow `env:` block.
 POINTE_E2E_TOKEN = "dev-e2e-token"
+
+# S10 a11y-keyboard-fixes — bump the room-create per-IP/hour cap for
+# dev/CI so a full e2e run (now 24+ host creates) doesn't trip the v1
+# 20/hr abuse ceiling locked in security.md §1. Prod's wrangler.toml
+# does NOT set this var; production stays at the spec value (20).
+RL_CREATE_PER_HOUR_OVERRIDE = "500"

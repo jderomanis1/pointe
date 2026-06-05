@@ -37,6 +37,24 @@ export interface Env {
    * privacy contract is enforced by the typed helper in metrics.ts).
    */
   METRICS?: AnalyticsEngineDataset;
+  /**
+   * S10 a11y-keyboard-fixes — dev/CI override for the room-create
+   * per-IP/hour budget. Prod is spec-locked at 20 (see security.md §1
+   * + rateLimit.ts); setting this var via `wrangler.dev.toml` (CI uses
+   * the same dev config) bumps it so a full e2e run can create more
+   * than 20 host rooms in one go without tripping the abuse ceiling.
+   * Prod never sets this and the cap stays at 20. A non-numeric or
+   * unset value falls through to the spec value.
+   */
+  RL_CREATE_PER_HOUR_OVERRIDE?: string;
+}
+
+/** Resolve the create rate-limit cap, honouring the dev/CI override. */
+function createPerHour(env: Env): number {
+  const raw = env.RL_CREATE_PER_HOUR_OVERRIDE;
+  if (!raw) return RL_CREATE_PER_HOUR;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : RL_CREATE_PER_HOUR;
 }
 
 const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
@@ -79,7 +97,7 @@ export function buildSessionCookie(hostVoterId: string, slug: string): string {
 
 async function createRoomEndpoint(request: Request, env: Env): Promise<Response> {
   // SI-06 per-hour ceiling — fixed-window KV counter. See /spec/security.md §1.
-  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), RL_CREATE_PER_HOUR, HOUR_MS))) {
+  if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), createPerHour(env), HOUR_MS))) {
     return rateLimited('Too many rooms created from this IP. Try again later.', 3600);
   }
   let parsed: unknown;

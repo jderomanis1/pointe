@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Check, EyeOff, HelpCircle, X } from 'lucide-react';
 import type { AISuggestion, DimLevel } from '@pointe/shared';
 import { Button } from '../Button';
@@ -51,6 +51,23 @@ export function AiSuggestionPanel({
   ai, isHost = false, revealed = false, onShare, className, footerSlot,
 }: AiSuggestionPanelProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // S10 a11y-keyboard §3 (resolved A): the "What's CERU?" popover is a
+  // disclosure, NOT a modal. Trigger toggles it; Escape closes it as a
+  // cheap nice-to-have. No focus-trap, no focus-move-into — those are
+  // modal behaviors that don't belong on an informational popover.
+  // The trigger button carries `aria-expanded`/`aria-controls` and the
+  // panel is a labelled region (see CeruPopover + PanelHeader).
+  const togglePopover = () => setPopoverOpen((o) => !o);
+  const popoverId = useId();
+  const popoverHeadingId = `${popoverId}-heading`;
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPopoverOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [popoverOpen]);
   const shared = ai.state === 'ready' && ai.shared === true;
   // The armed share button only renders for a host at reveal, with a
   // not-yet-shared ready suggestion AND an onShare handler wired up.
@@ -68,9 +85,19 @@ export function AiSuggestionPanel({
         style={{ borderWidth: '0.5px' }}
         aria-label="AI suggestion (pending)"
       >
-        <PanelHeader onWhatIsCeru={() => setPopoverOpen(true)} />
+        <PanelHeader
+          open={popoverOpen}
+          onToggle={togglePopover}
+          controlsId={popoverId}
+        />
         <p className="text-meta text-text-muted">Asking…</p>
-        {popoverOpen ? <CeruPopover onClose={() => setPopoverOpen(false)} /> : null}
+        {popoverOpen ? (
+          <CeruPopover
+            id={popoverId}
+            headingId={popoverHeadingId}
+            onClose={() => setPopoverOpen(false)}
+          />
+        ) : null}
       </section>
     );
   }
@@ -85,14 +112,24 @@ export function AiSuggestionPanel({
         style={{ borderWidth: '0.5px' }}
         aria-label="AI suggestion (unavailable)"
       >
-        <PanelHeader onWhatIsCeru={() => setPopoverOpen(true)} />
+        <PanelHeader
+          open={popoverOpen}
+          onToggle={togglePopover}
+          controlsId={popoverId}
+        />
         <p className="text-meta text-text-muted">
           AI unavailable
           {ai.errorMessage ? (
             <span className="font-mono text-text-secondary">{` · ${ai.errorMessage}`}</span>
           ) : null}
         </p>
-        {popoverOpen ? <CeruPopover onClose={() => setPopoverOpen(false)} /> : null}
+        {popoverOpen ? (
+          <CeruPopover
+            id={popoverId}
+            headingId={popoverHeadingId}
+            onClose={() => setPopoverOpen(false)}
+          />
+        ) : null}
       </section>
     );
   }
@@ -107,7 +144,11 @@ export function AiSuggestionPanel({
       style={{ borderWidth: '0.5px' }}
       aria-label="AI suggestion"
     >
-      <PanelHeader onWhatIsCeru={() => setPopoverOpen(true)} />
+      <PanelHeader
+        open={popoverOpen}
+        onToggle={togglePopover}
+        controlsId={popoverId}
+      />
 
       {/* Visibility caption — drops once the suggestion is shared. */}
       {!shared ? (
@@ -181,12 +222,24 @@ export function AiSuggestionPanel({
         </p>
       ) : null}
 
-      {popoverOpen ? <CeruPopover onClose={() => setPopoverOpen(false)} /> : null}
+      {popoverOpen ? (
+        <CeruPopover
+          id={popoverId}
+          headingId={popoverHeadingId}
+          onClose={() => setPopoverOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }
 
-function PanelHeader({ onWhatIsCeru }: { onWhatIsCeru: () => void }) {
+function PanelHeader({
+  open, onToggle, controlsId,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  controlsId: string;
+}) {
   return (
     <header className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
@@ -199,7 +252,7 @@ function PanelHeader({ onWhatIsCeru }: { onWhatIsCeru: () => void }) {
       </div>
       <button
         type="button"
-        onClick={onWhatIsCeru}
+        onClick={onToggle}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-sm px-2 py-1',
           'border border-hairline bg-surface text-text-secondary',
@@ -207,7 +260,11 @@ function PanelHeader({ onWhatIsCeru }: { onWhatIsCeru: () => void }) {
           'hover:bg-fill transition-colors duration-fast',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         )}
-        aria-haspopup="dialog"
+        // Disclosure pattern: trigger advertises its disclosed state +
+        // names the controlled region. NOT `aria-haspopup` — that would
+        // re-imply the modal-dialog promise we explicitly demoted from.
+        aria-expanded={open}
+        aria-controls={controlsId}
       >
         <HelpCircle size={12} aria-hidden="true" />
         <span>What&rsquo;s CERU?</span>
@@ -257,11 +314,28 @@ const CERU_COPY = [
   'Unknowns — what isn’t decided yet? Open questions and undefined scope.',
 ] as const;
 
-function CeruPopover({ onClose }: { onClose: () => void }) {
+/**
+ * S10 a11y-keyboard §3 (resolved A): rendered as a labelled disclosure
+ * region, NOT `role="dialog"`. The trigger (PanelHeader) carries
+ * `aria-expanded`/`aria-controls` and toggles `popoverOpen`; Escape
+ * also closes (parent `useEffect`). No focus-trap, no forced
+ * focus-move-into — those are the modal behaviors the demote
+ * deliberately leaves off. The inline X button stays as a redundant
+ * mouse/touch dismissal; on the keyboard the trigger toggle and
+ * Escape are the two paths.
+ */
+function CeruPopover({
+  id, headingId, onClose,
+}: {
+  id: string;
+  headingId: string;
+  onClose: () => void;
+}) {
   return (
     <div
-      role="dialog"
-      aria-label="What is CERU?"
+      id={id}
+      role="region"
+      aria-labelledby={headingId}
       className={cn(
         'mt-2 bg-surface border border-hairline rounded-md p-4',
         'flex flex-col gap-2',
@@ -269,7 +343,7 @@ function CeruPopover({ onClose }: { onClose: () => void }) {
       style={{ borderWidth: '0.5px' }}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="font-sans font-medium text-text">What&rsquo;s CERU?</span>
+        <span id={headingId} className="font-sans font-medium text-text">What&rsquo;s CERU?</span>
         <button
           type="button"
           onClick={onClose}

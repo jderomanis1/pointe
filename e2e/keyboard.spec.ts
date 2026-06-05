@@ -33,9 +33,11 @@
 import { test, expect, request as pwRequest, type Page } from '@playwright/test';
 import {
   addStory,
+  castAsyncVote,
   castVote,
   createHostRoom,
   joinAsVoter,
+  openAsyncWindow,
   openVotingFirstStory,
 } from './helpers/multi-context';
 
@@ -237,7 +239,7 @@ test.describe('S10 a11y-keyboard — locked', () => {
    * decision lands, this test can grow an `expect(activeTag).toBe(…)`
    * assertion against the chosen target.
    */
-  test('reveal — Reveal/Commit reachable, Enter on Reveal transitions', async ({ browser }) => {
+  test('reveal — Reveal/Commit reachable, Enter on Reveal transitions, focus lands on Commit', async ({ browser }) => {
     const host = await createHostRoom(browser, { hostName: 'Helen' });
     const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });
     await addStory(host.page, 'Wire OAuth');
@@ -249,14 +251,78 @@ test.describe('S10 a11y-keyboard — locked', () => {
     await host.page.keyboard.press('Enter');
     await expect(host.page.getByRole('button', { name: 'Commit estimate' })).toBeVisible();
 
+    // S10 a11y-keyboard §2 (resolved REVEAL→Commit only, host hot-path):
+    // CommitPanel's mount-time `useEffect` moves focus to the Commit
+    // estimate primary so the host's next action is already in hand.
+    // Median pre-selected from the single vote (5) → button is enabled
+    // → focus moves. Wait on the focus rather than asserting immediately
+    // because the effect runs after React commits the panel.
+    await expect(host.page.getByRole('button', { name: 'Commit estimate' })).toBeFocused();
+
     // Post-reveal walk: no trap, every interactive stop has an indicator,
-    // and Commit estimate is reachable via Tab.
+    // and Commit estimate is reachable via Tab too (not just on focus-on-
+    // transition).
     const stops = await walkTabs(host.page, TRAP_PROBE_TABS);
     assertWalkClean(stops);
     expect(
       stops.some((s) => /Commit estimate/.test(s.key)),
       'Commit estimate reached during Tab walk',
     ).toBe(true);
+
+    await alice.context.close();
+    await host.context.close();
+  });
+
+  /**
+   * S10 a11y-keyboard §3 (resolved A): "What's CERU?" is a disclosure
+   * (labelled region), NOT `role="dialog"`. Trigger advertises
+   * `aria-expanded`; Enter on trigger toggles; Escape also closes.
+   * No focus-trap / no focus-move-into asserted — those are modal
+   * behaviours the demote deliberately leaves off.
+   *
+   * Seeds the AI panel with the dev-only `/api/__test/ai-ready/:slug`
+   * route (same path the anti-anchoring spec uses) — dev/CI lack
+   * ANTHROPIC_API_KEY so a real REQUEST_AI would resolve `failed`.
+   */
+  test('reveal — "What\'s CERU?" disclosure: trigger toggles, Escape closes', async ({ browser }) => {
+    const host = await createHostRoom(browser, { hostName: 'Helen' });
+    const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });
+    await addStory(host.page, 'Wire OAuth');
+    await openVotingFirstStory(host.page);
+
+    const apiCtx = await pwRequest.newContext({ baseURL: host.page.url() });
+    const aiRes = await apiCtx.post(`/api/__test/ai-ready/${host.slug}`, {
+      headers: { 'x-pointe-e2e-token': E2E_TOKEN },
+    });
+    expect(aiRes.status()).toBe(200);
+    await apiCtx.dispose();
+
+    // Positive anchor: the host AI panel mounted (its <section>
+    // carries aria-label="AI suggestion").
+    await expect(host.page.locator('section[aria-label="AI suggestion"]')).toBeVisible();
+
+    const trigger = host.page.getByRole('button', { name: /What.?s CERU/i });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    // Trigger Enter → aria-expanded=true, region is in the DOM.
+    await trigger.focus();
+    await host.page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(host.page.getByRole('region', { name: /What.?s CERU/i })).toBeVisible();
+
+    // Trigger Enter again → aria-expanded=false (disclosure toggle).
+    await trigger.focus();
+    await host.page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(host.page.getByRole('region', { name: /What.?s CERU/i })).toHaveCount(0);
+
+    // Re-open, then Escape closes (cheap nice-to-have, NOT a modal trap).
+    await trigger.focus();
+    await host.page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await host.page.keyboard.press('Escape');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(host.page.getByRole('region', { name: /What.?s CERU/i })).toHaveCount(0);
 
     await alice.context.close();
     await host.context.close();
@@ -299,6 +365,61 @@ test.describe('S10 a11y-keyboard — locked', () => {
     await host.page.locator('[data-slot="discuss-live"]').first().focus();
     await host.page.keyboard.press('Enter');
     await expect(host.page.locator('[data-slot="review-host-screen"]')).toHaveCount(0);
+
+    await alice.context.close();
+    await host.context.close();
+  });
+
+  /**
+   * S10 a11y-keyboard coverage add — the agreed-pile / Accept-all
+   * keyboard walk. The original async-review test landed on the
+   * no-estimate (Discuss live) path because no votes were cast.
+   * Covered-by-construction (Accept-all is a real `<button>`) is
+   * not the same as asserted; this test runs the actual keyboard
+   * path on the agreed-pile data shape.
+   *
+   * Seed: 1 host + 1 voter, 1 story, voter casts 5 @ confidence 3.
+   * After force-close that story is "agreed" (1 vote, no outlier,
+   * not low-confidence). Review screen mounts the agreed-strip
+   * with Accept-all 1.
+   */
+  test('async-review — agreed-pile / Accept-all reachable, indicator present, Enter commits', async ({ browser }) => {
+    const host = await createHostRoom(browser, { hostName: 'Helen', mode: 'async' });
+    const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });
+    await addStory(host.page, 'Wire OAuth');
+    await openAsyncWindow(host.page);
+
+    // Single agreed vote: 5 @ confidence 3 (default). After close this
+    // is a 1-vote consensus, no outlier, avgConf 3.0 → agreed pile.
+    await castAsyncVote(alice.page, { points: '5', confidence: 3 });
+    await expect(alice.page.locator('[data-slot="async-done"]')).toBeVisible();
+
+    const apiCtx = await pwRequest.newContext({ baseURL: host.page.url() });
+    const res = await apiCtx.post(`/api/__test/close/${host.slug}`, {
+      headers: { 'x-pointe-e2e-token': E2E_TOKEN },
+    });
+    expect(res.status()).toBe(200);
+    await apiCtx.dispose();
+
+    // Positive anchor: agreed strip mounts with Accept-all 1.
+    const acceptAll = host.page.locator('[data-slot="accept-all"]');
+    await expect(acceptAll).toContainText('Accept all 1');
+
+    // Tab walk: no trap, indicator on every interactive stop, and the
+    // Accept-all primary is reachable.
+    const stops = await walkTabs(host.page, TRAP_PROBE_TABS);
+    assertWalkClean(stops);
+    expect(
+      stops.some((s) => /Accept all|accept-all/.test(s.key)),
+      'Accept-all reached during Tab walk',
+    ).toBe(true);
+
+    // Activation: focus Accept-all, press Enter — agreed strip
+    // dismounts (the server commits the agreed story; the strip is
+    // re-rendered with no agreed stories left, so the slot vanishes).
+    await acceptAll.focus();
+    await host.page.keyboard.press('Enter');
+    await expect(host.page.locator('[data-slot="agreed-strip"]')).toHaveCount(0);
 
     await alice.context.close();
     await host.context.close();
