@@ -1,0 +1,34 @@
+# S10.i.c2 — dev/CI wrangler config. Selected by the `dev:e2e` script
+# (`wrangler dev -c wrangler.dev.toml --port 8787 --ip 127.0.0.1 --local`).
+# Differences from the prod `wrangler.toml`:
+#   • `main` points at `worker.dev.ts` — the entry that wraps prod with
+#     test routes (see src/worker.dev.ts for the gating rationale).
+#   • No `[[routes]]` block — local dev doesn't use the Cloudflare zone.
+#   • Adds `POINTE_E2E_TOKEN` via the env section (literal here is the
+#     local dev value; CI overrides via env vars). The token gates every
+#     test route in `src/testRoutes.ts`.
+#
+# Production (`wrangler.toml`) does NOT reference this file; deploy
+# always uses the prod config. The build-exclusion test asserts the
+# prod bundle has no test code.
+
+name = "pointe-worker"
+main = "src/worker.dev.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[[kv_namespaces]]
+binding = "POINTE_SLUGS"
+id = "kv_local_dev"
+
+[vars]
+# Dev-only default. CI sets this via the workflow `env:` block.
+POINTE_E2E_TOKEN = "dev-e2e-token"

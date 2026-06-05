@@ -44,7 +44,12 @@ export function RoomPage({ slug }: { slug: string }) {
   useEffect(() => {
     if (probe.kind !== 'found' || joinParams || !navState?.asHost) return;
     setJoinParams({
-      wsUrl: navState.wsUrl,
+      // S10.i — derive the WS URL from the current origin (`buildWsUrl`),
+      // not from the server's POST /api/rooms response. In dev the
+      // server sits behind a Vite proxy and its Host header is
+      // 127.0.0.1:8787 — unreachable from the browser at localhost:5173.
+      // The client always knows its own origin; rely on that.
+      wsUrl: buildWsUrl(slug),
       join: {
         slug,
         displayName: navState.displayName,
