@@ -27,7 +27,8 @@ const BUNDLE = resolve(OUTDIR, 'worker.js');
  *  is the contract the test enforces. */
 const FORBIDDEN_SUBSTRINGS = [
   'maybeHandleTestRoute',  // the testRoutes.ts export
-  'force-async-close',     // the DevRoom internal route
+  'force-async-close',     // the DevRoom internal route (S10.i)
+  'inject-ai-ready',       // the DevRoom internal route (S10.ii)
   'POINTE_E2E_TOKEN',      // the dev-only env var name
   '/api/__test/',          // the test-route prefix
 ];

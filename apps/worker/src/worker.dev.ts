@@ -20,8 +20,10 @@
  *      the prod worker unchanged.
  */
 import type { DurableObjectState, WebSocket } from '@cloudflare/workers-types';
+import type { AISuggestion } from '@pointe/shared';
 import prodWorker, { Room as ProdRoom, type Env } from './worker';
 import { maybeHandleTestRoute } from './testRoutes';
+import { upsertAiSuggestion } from './ai';
 
 /**
  * DevRoom — Room subclass with one extra internal fetch route. Constructor
@@ -61,7 +63,69 @@ export class Room extends ProdRoom {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    if (pathname === '/__test/inject-ai-ready' && request.method === 'POST') {
+      return this.injectAiReady();
+    }
     return super.fetch(request);
+  }
+
+  /**
+   * S10.ii — stub the host-private "AI ready" arrival without calling
+   * Anthropic. Resolves the room's currently-active story (the same
+   * branch a real REQUEST_AI handler targets), upserts a deterministic
+   * `ready` ai_suggestion (shared=0), and delegates delivery to the
+   * production `sendAiUpdatedToHost`.
+   *
+   * Vacuity-guard contract: the stub fabricates only the AI payload.
+   * The change shape, envelope construction, and host-only socket
+   * filter all come from the production methods on `Room` (made
+   * `protected` for this call). Voters' non-receipt is therefore
+   * enforced by production code — not a parallel stub filter.
+   *
+   * 404 if no active story exists — the caller (E2E spec) sequences
+   * `OPEN_VOTING` before this route, so this is a programming error
+   * surfacing rather than a flake to mask.
+   */
+  private injectAiReady(): Response {
+    const sql = this.devState.storage.sql;
+    const row = sql.exec<{ id: string }>(
+      `SELECT id FROM story WHERE state = 'active' LIMIT 1`,
+    ).toArray()[0];
+    if (!row) {
+      return new Response(
+        JSON.stringify({ code: 'NO_ACTIVE_STORY', message: 'No active story to attach AI to' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    const storyId = row.id;
+    const payload = {
+      complexity: { level: 'medium' as const, note: 'Several flows interact.' },
+      effort: { level: 'medium' as const, note: 'A few small files.' },
+      risk: { level: 'low' as const, note: 'Reversible.' },
+      unknowns: { level: 'low' as const, note: 'Well-trodden path.' },
+      suggestedRange: { low: '3', high: '5' },
+      rationale: 'Stubbed AI rationale for E2E.',
+    };
+    const now = Date.now();
+    upsertAiSuggestion(sql, {
+      storyId,
+      state: 'ready',
+      payload,
+      requestedAt: now,
+      completedAt: now,
+      shared: false,
+    });
+    const ai: AISuggestion = { state: 'ready', ...payload, shared: false };
+    // Production delivery path — same function the real REQUEST_AI
+    // completion calls in `runAiCall`. This is the load-bearing line
+    // for AA-1 in the E2E suite: the host-only filter that keeps the
+    // ai_updated change off voter sockets is the one inside
+    // `sendToHostSockets`, not a copy in this stub.
+    this.sendAiUpdatedToHost(storyId, ai);
+    return new Response(JSON.stringify({ ok: true, storyId }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Required by hibernation contract — re-expose parent methods so the

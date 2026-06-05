@@ -14,10 +14,20 @@
  *   • Defense in depth ×2: `dev:e2e` binds wrangler to `127.0.0.1` only,
  *     so even on a developer's machine the routes aren't on the LAN.
  *
- * The single route this slice ships: `POST /api/__test/close/:slug` —
- * triggers the production async-close path on the named room. Used by
- * the proof-flow E2E to drive the post-close review screen without
- * waiting on the real alarm.
+ * Routes:
+ *   POST /api/__test/close/:slug
+ *     S10.i — fires the production async-close alarm immediately on the
+ *     named room (same code path as the real alarm).
+ *
+ *   POST /api/__test/ai-ready/:slug
+ *     S10.ii — injects a deterministic `ready` AI suggestion for the room's
+ *     currently-active story + broadcasts the host-only `ai_updated` DELTA.
+ *     Used by the anti-anchoring spec because dev/CI worker has no
+ *     ANTHROPIC_API_KEY — a real REQUEST_AI would resolve `failed`, which
+ *     can't be SHARE_AI'd. This route bypasses the Anthropic call but
+ *     re-uses the same storage primitive (`upsertAiSuggestion`) and the
+ *     same host-only DELTA shape, so the AA-1 projection logic + the
+ *     reveal/share UI still exercise their production paths.
  */
 import type { DurableObjectNamespace, KVNamespace } from '@cloudflare/workers-types';
 import { lookupSlug } from './slug';
@@ -65,6 +75,14 @@ export async function maybeHandleTestRoute(
     return await forceAsyncClose(slug, env);
   }
 
+  // POST /api/__test/ai-ready/:slug — inject a deterministic ready AI
+  // suggestion for the room's currently-active story.
+  const aiReadyMatch = url.pathname.match(/^\/api\/__test\/ai-ready\/([a-z-]+-\d+)$/);
+  if (aiReadyMatch && request.method === 'POST') {
+    const slug = aiReadyMatch[1];
+    return await injectAiReady(slug, env);
+  }
+
   return json({ code: 'TEST_ROUTE_NOT_FOUND', message: `${request.method} ${url.pathname}` }, 404);
 }
 
@@ -85,6 +103,28 @@ async function forceAsyncClose(slug: string, env: TestRoutesEnv): Promise<Respon
   // fired or was already-closed (idempotent — matches the alarm's
   // semantics in `handleAsyncCloseFire`).
   const inner = await stub.fetch(new Request('https://do/__test/force-async-close', {
+    method: 'POST',
+  }));
+  return new Response(await inner.text(), {
+    status: inner.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Resolve the slug → DO stub, then call a DevRoom-only internal route
+ * that upserts the ai_suggestion row to `ready` (with a deterministic
+ * stub payload) and broadcasts an `ai_updated` DELTA to host sockets —
+ * identical shape to a real REQUEST_AI completion. Returns 200 with the
+ * inner body; 404 if no active story exists.
+ */
+async function injectAiReady(slug: string, env: TestRoutesEnv): Promise<Response> {
+  const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
+  if (roomId === null) {
+    return json({ code: 'SLUG_NOT_FOUND', message: 'Room not found' }, 404);
+  }
+  const stub = env.ROOM.get(env.ROOM.idFromName(roomId));
+  const inner = await stub.fetch(new Request('https://do/__test/inject-ai-ready', {
     method: 'POST',
   }));
   return new Response(await inner.text(), {
