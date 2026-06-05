@@ -341,10 +341,16 @@ export function applyChange(state: RoomStore, change: DeltaChange): RoomStore {
       // S9.i.c3 — close alarm fired. Room transitions to review; the
       // accompanying per-story `votes_revealed` changes (in the same DELTA
       // batch) carry votes + stats + needsDiscussion per story.
+      //
+      // S10.iii — also drop `asyncWindow` here. RoomShell's `asyncWindowOpen`
+      // gate is `mode==='async' && asyncWindow!==undefined && state==='active'`;
+      // leaving asyncWindow set would re-mount AsyncVoterView for voters on
+      // the next OPEN_DISCUSSION-driven `review → active` transition, instead
+      // of the sync VotingStage the discuss-live re-vote needs.
       if (!state.room) return state;
       return {
         ...state,
-        room: { ...state.room, state: 'review' },
+        room: { ...state.room, state: 'review', asyncWindow: undefined },
       };
 
     case 'room_state_changed':

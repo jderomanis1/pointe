@@ -120,3 +120,39 @@ export async function castVote(page: Page, value: string): Promise<void> {
 export function seatByName(viewer: Page, displayName: string) {
   return viewer.locator('[data-testid^="seat-"]').filter({ hasText: displayName });
 }
+
+// ---- S10.iii — async-mode helpers ----
+
+/**
+ * Host opens the async voting window with the default 24h duration. Waits
+ * on the host monitor view mounting — proves the OPEN_ASYNC round-trip
+ * landed and the room flipped to `state='active'` + `asyncWindow` stamped.
+ */
+export async function openAsyncWindow(hostPage: Page): Promise<void> {
+  await hostPage.getByRole('button', { name: /Open async voting/i }).click();
+  await expect(hostPage.locator('[data-slot="async-host-monitor"]')).toBeVisible();
+}
+
+/**
+ * Cast a vote on the current focused story in AsyncVoterView, then advance
+ * (the primary "Next story →" / "Submit & finish →" does both in one beat).
+ *
+ * Confidence default in the picker is 3 — pass any other level and the
+ * helper clicks the matching confidence dot (each carries
+ * `aria-label="Confidence ${lvl}"`).
+ *
+ * Caller is responsible for waiting on the post-cast observable state
+ * (the next story's stage rendering, or the done state) — this keeps the
+ * helper simple while letting the per-step assertions stay close to the
+ * test's intent.
+ */
+export async function castAsyncVote(
+  voterPage: Page,
+  opts: { points: string; confidence: 1 | 2 | 3 | 4 | 5 },
+): Promise<void> {
+  await voterPage.getByRole('radio', { name: opts.points, exact: true }).click();
+  if (opts.confidence !== 3) {
+    await voterPage.getByRole('radio', { name: `Confidence ${opts.confidence}` }).click();
+  }
+  await voterPage.locator('[data-slot="async-primary"]').click();
+}
