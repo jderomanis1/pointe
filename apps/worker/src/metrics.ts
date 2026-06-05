@@ -69,6 +69,20 @@ export function recordRoomCreated(env: MetricsEnv, mode: RoomMode): void {
  * Doc 3's "20% of stories" is loose enough to support either reading
  * (intent vs delivered); we lock the intent reading explicitly so the
  * dashboard label and the code agree.
+ *
+ * **Honest claim — what the number CAN and CAN'T say.** `ai_requested`
+ * is an **event count** of validated host intent. In-flight duplicate
+ * requests are excluded (the silent-absorb gate above), but READY
+ * re-sends and CACHE HITS are counted as fresh intent — each is a
+ * separate "host clicked AI for this story" signal. The event is
+ * deliberately **not per-story-deduped**: story IDs are forbidden in
+ * telemetry per Doc 2 §17, so the dataset has no key to dedup on at
+ * query time either. Consequence — Doc 3's "AI on 20% of stories"
+ * reads as an **event-rate proxy** (`ai_requested ÷ stories_created`,
+ * itself derived from `room_created` × avg stories/room). It can run
+ * slightly above the true fraction-of-stories when a host re-requests
+ * on the same story; we accept that bias because the alternative
+ * (sending a hash or story id) violates the privacy contract.
  */
 export function recordAiRequested(env: MetricsEnv): void {
   const m = env.METRICS;
