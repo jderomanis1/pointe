@@ -20,8 +20,13 @@
  *      the prod worker unchanged.
  */
 import type { DurableObjectState, WebSocket } from '@cloudflare/workers-types';
+import type { AISuggestion, DeltaChange, Envelope } from '@pointe/shared';
+import { PROTOCOL_VERSION } from '@pointe/shared';
 import prodWorker, { Room as ProdRoom, type Env } from './worker';
 import { maybeHandleTestRoute } from './testRoutes';
+import { upsertAiSuggestion } from './ai';
+import { getHostVoterId } from './operations';
+import { getAttachment } from './broadcast';
 
 /**
  * DevRoom — Room subclass with one extra internal fetch route. Constructor
@@ -61,7 +66,80 @@ export class Room extends ProdRoom {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    if (pathname === '/__test/inject-ai-ready' && request.method === 'POST') {
+      return this.injectAiReady();
+    }
     return super.fetch(request);
+  }
+
+  /**
+   * S10.ii — stub the host-private "AI ready" arrival without calling
+   * Anthropic. Resolves the room's currently-active story (the same
+   * branch a real REQUEST_AI handler targets), upserts a deterministic
+   * `ready` ai_suggestion (shared=0), and emits the host-only ai_updated
+   * DELTA. The production projection logic still gates voter exposure:
+   * voters only see this once SHARE_AI broadcasts.
+   *
+   * 404 if no active story exists — the caller (E2E spec) sequences
+   * `OPEN_VOTING` before this route, so this is a programming error
+   * surfacing rather than a flake to mask.
+   */
+  private injectAiReady(): Response {
+    const sql = this.devState.storage.sql;
+    const row = sql.exec<{ id: string }>(
+      `SELECT id FROM story WHERE state = 'active' LIMIT 1`,
+    ).toArray()[0];
+    if (!row) {
+      return new Response(
+        JSON.stringify({ code: 'NO_ACTIVE_STORY', message: 'No active story to attach AI to' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    const storyId = row.id;
+    const payload = {
+      complexity: { level: 'medium' as const, note: 'Several flows interact.' },
+      effort: { level: 'medium' as const, note: 'A few small files.' },
+      risk: { level: 'low' as const, note: 'Reversible.' },
+      unknowns: { level: 'low' as const, note: 'Well-trodden path.' },
+      suggestedRange: { low: '3', high: '5' },
+      rationale: 'Stubbed AI rationale for E2E.',
+    };
+    const now = Date.now();
+    upsertAiSuggestion(sql, {
+      storyId,
+      state: 'ready',
+      payload,
+      requestedAt: now,
+      completedAt: now,
+      shared: false,
+    });
+    const ai: AISuggestion = { state: 'ready', ...payload, shared: false };
+
+    // Host-only DELTA — same shape Room.sendAiUpdatedToHost emits. We
+    // can't call that method (private on the parent), so re-build the
+    // tiny send loop here: resolve host voterId, walk attached sockets,
+    // send to the ones bound to that voter.
+    const hostId = getHostVoterId(sql);
+    if (hostId) {
+      const change: DeltaChange = { kind: 'ai_updated', storyId, ai };
+      const envelope: Envelope<{ changes: DeltaChange[] }> = {
+        v: PROTOCOL_VERSION,
+        type: 'DELTA',
+        id: crypto.randomUUID(),
+        at: now,
+        payload: { changes: [change] },
+      };
+      const raw = JSON.stringify(envelope);
+      for (const sock of this.devState.getWebSockets()) {
+        const att = getAttachment(sock);
+        if (att?.voterId !== hostId) continue;
+        try { sock.send(raw); } catch { /* socket closing */ }
+      }
+    }
+    return new Response(JSON.stringify({ ok: true, storyId }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Required by hibernation contract — re-expose parent methods so the
