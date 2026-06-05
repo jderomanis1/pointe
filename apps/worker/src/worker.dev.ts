@@ -24,6 +24,8 @@ import type { AISuggestion } from '@pointe/shared';
 import prodWorker, { Room as ProdRoom, type Env } from './worker';
 import { maybeHandleTestRoute } from './testRoutes';
 import { upsertAiSuggestion } from './ai';
+import { getHostVoterId } from './operations';
+import { getAttachment } from './broadcast';
 
 /**
  * DevRoom — Room subclass with one extra internal fetch route. Constructor
@@ -66,7 +68,73 @@ export class Room extends ProdRoom {
     if (pathname === '/__test/inject-ai-ready' && request.method === 'POST') {
       return this.injectAiReady();
     }
+    if (pathname === '/__test/fire-host-vacancy' && request.method === 'POST') {
+      return await this.fireHostVacancy();
+    }
+    if (pathname === '/__test/drop-voter-sockets' && request.method === 'POST') {
+      return await this.dropVoterSockets();
+    }
     return super.fetch(request);
+  }
+
+  /**
+   * S10.iv — close every WS NOT bound to the host. Faithfulness contract:
+   *   1. `sock.close()` initiates the close from the server side, sending
+   *      a close frame to the client — the WSClient's `onclose` handler
+   *      runs and kicks off the reconnect loop. This is the production
+   *      path's outgoing half.
+   *   2. We then invoke `this.webSocketClose(sock, ...)` directly, with
+   *      the same args the workerd runtime would have passed had the
+   *      client initiated the close. This runs the SAME production
+   *      handler (`Room.webSocketClose` → markGoneAndBroadcast →
+   *      voter_left broadcast → maybeScheduleHostVacant). The runtime
+   *      doesn't auto-invoke the close handler when the DO is the
+   *      closer; calling it ourselves is what makes the test reflect a
+   *      real packet-loss the way it would land on every other socket.
+   *
+   * Skips the host socket — vacancy/claim is a separate flow with its
+   * own dedicated test route.
+   */
+  private async dropVoterSockets(): Promise<Response> {
+    const hostId = getHostVoterId(this.devState.storage.sql);
+    let closed = 0;
+    for (const sock of this.devState.getWebSockets()) {
+      const att = getAttachment(sock);
+      if (att?.voterId === hostId) continue;
+      try {
+        sock.close(4000, 'test-drop');
+        // Run the production close path the way the runtime would have.
+        await this.webSocketClose(sock, 4000, 'test-drop', true);
+        closed++;
+      } catch { /* already closing */ }
+    }
+    return new Response(JSON.stringify({ ok: true, closed }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  /**
+   * S10.iv — collapse the 30s host_vacant grace window deterministically.
+   * Sets `at = 0` on every pending host_vacant scheduled task and invokes
+   * the alarm. The same production handler (`Room.handleHostVacantFire`)
+   * runs through `runDueTasks → dispatchScheduledTask`; eligibility
+   * checks (room state, hostVoterId unchanged, host still absent) are
+   * intact. The only thing the test fakes is the wall-clock — the same
+   * faithfulness contract S10.i's force-async-close holds.
+   *
+   * Idempotent: zero pending vacancy tasks yields a no-op `runDueTasks`,
+   * returning 200 with `{ ok: true }`.
+   */
+  private async fireHostVacancy(): Promise<Response> {
+    this.devState.storage.sql.exec(
+      `UPDATE scheduled_task SET at = 0 WHERE type = 'host_vacant'`,
+    );
+    await this.alarm();
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   /**

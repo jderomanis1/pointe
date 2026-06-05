@@ -29,6 +29,8 @@ const FORBIDDEN_SUBSTRINGS = [
   'maybeHandleTestRoute',  // the testRoutes.ts export
   'force-async-close',     // the DevRoom internal route (S10.i)
   'inject-ai-ready',       // the DevRoom internal route (S10.ii)
+  'fire-host-vacancy',     // the DevRoom internal route (S10.iv)
+  'drop-voter-sockets',    // the DevRoom internal route (S10.iv)
   'POINTE_E2E_TOKEN',      // the dev-only env var name
   '/api/__test/',          // the test-route prefix
 ];
