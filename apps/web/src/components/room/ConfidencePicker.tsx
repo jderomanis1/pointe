@@ -42,7 +42,7 @@ export function ConfidencePicker({
             />
           );
         })}
-        <span className="text-meta text-text-muted ml-2">least → most</span>
+        <span className="text-meta text-text-secondary ml-2">least → most</span>
       </div>
     </div>
   );

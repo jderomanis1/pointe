@@ -96,6 +96,60 @@ describe('applySnapshot', () => {
     expect(state.revealed['s-1'].stats?.numericCount).toBe(0);
     expect(state.revealed['s-1'].stats?.outliers).toEqual([]);
   });
+
+  it('seeds `myVotes` from the recipient\'s own active-story votes (S10.v.c1 fast guard)', () => {
+    // The server-side fix (snapshotOwnVote.workers.test.ts) proves the
+    // recipient-scoped snapshot includes the recipient's own active-story
+    // vote. The client half — reducer-side seeding — is what makes the
+    // cast button read "Update vote" after reconnect; this guard locks
+    // that contract on the per-push gate.
+    const ownVote: Vote = {
+      storyId: 's-1', voterId: 'v-a', points: '5', confidence: 4,
+      submittedAt: 100, updatedAt: 100,
+    };
+    const snapshot: RoomSnapshot = {
+      room: ROOM,
+      voters: [makeVoter('v-a')],
+      stories: [{ ...makeStory('s-1', 100, 'active'), votes: [ownVote] }],
+      you: { voterId: 'v-a', role: 'voter' },
+    };
+    const state = applySnapshot(initialState, snapshot);
+    expect(state.myVotes['s-1']).toEqual({ points: '5', confidence: 4 });
+  });
+
+  it('does NOT seed myVotes from peers (the server already strips them; defense-in-depth)', () => {
+    // The server's recipient-scoped buildSnapshot only puts the receiver's
+    // OWN vote in `votes`. If a peer's vote somehow leaked into a snapshot
+    // payload, the reducer's `v.voterId === snapshot.you.voterId` filter
+    // is the second-layer defense.
+    const peerVote: Vote = {
+      storyId: 's-1', voterId: 'v-b', points: '8', confidence: 3,
+      submittedAt: 100, updatedAt: 100,
+    };
+    const snapshot: RoomSnapshot = {
+      room: ROOM,
+      voters: [makeVoter('v-a')],
+      // 'you' is v-a; the only vote in the array is v-b's (the leak case).
+      stories: [{ ...makeStory('s-1', 100, 'active'), votes: [peerVote] }],
+      you: { voterId: 'v-a', role: 'voter' },
+    };
+    const state = applySnapshot(initialState, snapshot);
+    expect(state.myVotes).toEqual({});
+  });
+
+  it('myVotes empty when the recipient hasn\'t voted on the active story', () => {
+    // No-cast-yet: votes array empty → myVotes stays empty. The "Cast
+    // estimate" → "Update vote" UI flip is gated on `myVotes[storyId]`,
+    // and this case has to keep "Cast estimate" visible.
+    const snapshot: RoomSnapshot = {
+      room: ROOM,
+      voters: [makeVoter('v-a')],
+      stories: [{ ...makeStory('s-1', 100, 'active'), votes: [] }],
+      you: { voterId: 'v-a', role: 'voter' },
+    };
+    const state = applySnapshot(initialState, snapshot);
+    expect(state.myVotes).toEqual({});
+  });
 });
 
 // ---- applyChange (per kind) ----

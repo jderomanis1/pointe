@@ -14,10 +14,12 @@
     "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
+    "axe-core": "^4.12.0",
     "eslint": "^10.4.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3"

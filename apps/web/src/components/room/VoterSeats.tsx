@@ -109,6 +109,7 @@ function ActiveSeat({ v, hasVoted, isMe }: { v: Voter; hasVoted: boolean; isMe: 
 function PresenceDot({ voted }: { voted: boolean }) {
   return (
     <span
+      role="img"
       aria-label={voted ? 'voted' : 'not yet'}
       className={cn(
         'inline-block h-2 w-2 rounded-pill',
@@ -162,7 +163,7 @@ function RevealedSeat({
 
 function ConfidenceDots({ level }: { level: number }) {
   return (
-    <div aria-label={`Confidence ${level} of 5`} className="flex items-center gap-1">
+    <div role="img" aria-label={`Confidence ${level} of 5`} className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((lvl) => (
         <span
           key={lvl}
