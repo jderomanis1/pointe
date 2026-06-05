@@ -91,9 +91,19 @@ export function computeRevealStats(deck: string[], votes: Vote[]): RevealStats {
  * So a story needs discussion if it has an outlier OR its team-average
  * confidence is below `LOW_CONFIDENCE_THRESHOLD`.
  *
+ * S10.v.c2 amendment — all-non-numeric stories also need discussion.
+ * Everyone voting `?`/`∞` is literally "we don't know" — the definition
+ * of needs-refinement. Before the fix, such a story had `median === null`,
+ * so `storyNeedsDiscussion` returned false → ACCEPT_AGREED's eligible-row
+ * filter skipped it (commitStory requires a finalEstimate, null median
+ * can't be auto-committed) AND nothing flagged it for the discuss list,
+ * so it stranded in review.
+ *
  * Pure: feeds the close alarm's bucket-and-persist step; the server stores
  * the result on `story.needs_discussion` and the client renders from that.
  */
 export function storyNeedsDiscussion(stats: RevealStats): boolean {
-  return stats.outliers.length > 0 || stats.lowConfidence;
+  return stats.median === null
+    || stats.outliers.length > 0
+    || stats.lowConfidence;
 }

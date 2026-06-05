@@ -63,12 +63,16 @@ test.describe('S10.iv — reconnect + host vacancy/claim', () => {
     await addStory(host.page, 'Wire OAuth login');
     await openVotingFirstStory(host.page);
 
-    // Alice casts a vote so we have observable state to survive the drop.
+    // Both voters cast — Alice's value will be checked across the reconnect
+    // (own kept), Bob's value will be checked NOT to leak into Alice's view
+    // after the reconnect (the AA half of the S10.v.c1 contract).
     await castVote(alice.page, '5');
+    await castVote(bob.page, '8');
 
-    // Sanity: host roster shows 3 connected voters and Alice's seat is voted.
+    // Sanity: host roster shows 3 connected voters and both voted seats.
     await expect(host.page.locator('aside').filter({ hasText: 'Voters · 3' })).toBeVisible();
     await expect(seatByName(host.page, 'Alice')).toHaveAttribute('data-voted', 'true');
+    await expect(seatByName(host.page, 'Bob')).toHaveAttribute('data-voted', 'true');
 
     // DRIVE THE DROP via the dev test route — server-side close on every
     // non-host WS, faithfully running the production close path. The
@@ -105,13 +109,32 @@ test.describe('S10.iv — reconnect + host vacancy/claim', () => {
     // same (storyId, voterId) row, the resumed voterId matches the cast
     // vote). The host didn't reconnect, so its `votedPresence` (set by the
     // voter_voted delta from Alice's original cast) survives.
-    //
-    // Note: Alice's OWN view loses myVote on the snapshot rebuild (R2.iii —
-    // SNAPSHOT strips active-story votes; `myVotes` is rebuilt from session
-    // vote_value deltas, not seeded). This is intentional: the cast button
-    // returns to "Cast estimate" and she can recast. The persisted-on-server
-    // half is what matters for AA — the host's view above proves it.
     await expect(seatByName(host.page, 'Alice')).toHaveAttribute('data-voted', 'true');
+
+    // S10.v.c1 — own vote restored on the snapshot rebuild. Spec compliance
+    // fix: the recipient-scoped snapshot now includes the recipient's own
+    // active-story vote (Doc 2 §8 — "filtered out except for the voter
+    // who cast it"), and the reducer seeds `myVotes` from it. Two
+    // observable consequences in Alice's own DOM:
+    //
+    //   (a) Her cast button reads "Update vote" — the post-cast label,
+    //       set only when myVotes[storyId] is present. Was "Cast estimate"
+    //       before the fix.
+    //   (b) Her OWN seat in her OWN view carries data-voted="true". The
+    //       ActiveSeat logic is `isMe ? Boolean(myVote) : Boolean(presence)`,
+    //       so the own-seat flag is the truest test that myVote survived
+    //       the snapshot rebuild.
+    await expect(alice.page.getByRole('button', { name: 'Update vote' })).toBeVisible();
+    await expect(seatByName(alice.page, 'Alice')).toHaveAttribute('data-voted', 'true');
+
+    // AA half of the c1 contract — the snapshot leak surface that would
+    // hurt is `myVotes` carrying a peer's id. The reducer only seeds the
+    // recipient's own vote (`v.voterId === snapshot.you.voterId`); if the
+    // seed had been broader, the cast button's pre-fill would render
+    // Bob's value '8' as the active radio in the deck. Assert the deck
+    // shows Alice's '5' as checked, NOT Bob's '8'.
+    await expect(alice.page.getByRole('radio', { name: '5', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(alice.page.getByRole('radio', { name: '8', exact: true })).toHaveAttribute('aria-checked', 'false');
 
     await alice.context.close();
     await bob.context.close();

@@ -64,6 +64,20 @@ export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomSto
     }
   }
 
+  // S10.v.c1 — rebuild myVotes from the recipient's OWN active-story votes
+  // in the snapshot. The server's `buildSnapshot` now includes the
+  // recipient's own active-story vote (the spec-compliance fix: Doc 2 §8
+  // says active votes are filtered out except for the voter who cast it).
+  // Without this seed, a reconnecting voter would see their cast button as
+  // "Cast estimate" instead of "Update vote", and the deck card would
+  // re-deselect — visible regression of state across the network blip.
+  const myVotesSeed: Record<string, { points: string; confidence: number }> = {};
+  for (const s of snapshot.stories) {
+    if (s.state !== 'active' || !s.votes) continue;
+    const mine = s.votes.find((v) => v.voterId === snapshot.you.voterId);
+    if (mine) myVotesSeed[s.id] = { points: mine.points, confidence: mine.confidence };
+  }
+
   // S7.iv: if we were the host and the snapshot moves the host elsewhere,
   // remember the new host's name so the UI can quietly say "you were replaced."
   // Carry an existing notice forward if it's still relevant (a second snapshot
@@ -77,9 +91,10 @@ export function applySnapshot(state: RoomStore, snapshot: RoomSnapshot): RoomSto
     room: snapshot.room,
     voters,
     stories,
-    // SNAPSHOT strips active-story foreign votes (R2.iii), so nothing to seed here.
-    // myVotes is rebuilt from local-session `vote_value` deltas; votedPresence from `voter_voted`.
-    myVotes: {},
+    // Snapshot still strips foreign active-story votes (AA-intact);
+    // myVotes is now seeded from the recipient's own snapshot votes (above).
+    // votedPresence still rebuilds from session `voter_voted` deltas only.
+    myVotes: myVotesSeed,
     votedPresence: {},
     revealed,
     replacedByHostName,
