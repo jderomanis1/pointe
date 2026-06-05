@@ -66,6 +66,10 @@ export default [
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      // S10.i — wrangler dry-run prod bundle, playwright artifacts.
+      '**/.dist-prod/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
       '**/.wrangler/**',
       '**/.mf/**',
       'pnpm-lock.yaml',
@@ -105,6 +109,18 @@ export default [
     files: ['apps/web/**/*.{ts,tsx}'],
     languageOptions: {
       globals: browserGlobals,
+    },
+  },
+  // S10.i — Playwright E2E suite. Tests run in a Node + Chromium pair;
+  // the spec files themselves are Node code that drives the browser,
+  // so the Node globals (URL, console) plus Playwright's test/expect.
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...baseGlobals,
+        URL: 'readonly',
+      },
     },
   },
 ];
