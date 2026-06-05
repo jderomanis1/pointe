@@ -499,8 +499,13 @@ export function closeAsyncWindow(
     );
     results.push({ storyId: id, votes });
   }
+  // Drop async_window alongside the state flip. The window is over; preserving
+  // the JSON column past close keeps RoomShell's `asyncWindowOpen` gate stuck
+  // open on the next `review → active` transition (host-driven Discuss live),
+  // which would re-mount AsyncVoterView for voters instead of the sync
+  // VotingStage that the discuss-live re-vote needs.
   sql.exec(
-    `UPDATE room SET state = 'review', last_activity_at = ? WHERE 1`,
+    `UPDATE room SET state = 'review', async_window = NULL, last_activity_at = ? WHERE 1`,
     params.now,
   );
   return { closedAt: params.now, results };
