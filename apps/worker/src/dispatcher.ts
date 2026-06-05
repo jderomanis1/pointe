@@ -63,6 +63,14 @@ export type AiOrchestrator = {
     cacheKey: string;
     requestedAt: number;
   }) => void;
+  /**
+   * S10.vii — telemetry hook called once per accepted REQUEST_AI envelope
+   * (host opted a story into AI). Aggregate count only — the metrics
+   * helper writes no identifying dimensions. Optional in tests / preview
+   * (the Room wrapper supplies it from env.METRICS; missing binding =
+   * silent no-op).
+   */
+  recordAiRequested?: () => void;
 };
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
@@ -794,6 +802,13 @@ function handleRequestAi(ctx: HandlerCtx): Envelope[] {
       false, ctx.envelope.id,
     )];
   }
+
+  // S10.vii — telemetry: host opted a story into AI. Counted once per
+  // accepted REQUEST_AI that gets past the story guard, except the
+  // silent-absorb duplicate (in-flight pending) below. Cache hits, ready
+  // re-sends, and fresh calls all count — they're each a host intent
+  // signal. The metric helper writes no story id, no room id, no voter id.
+  ctx.aiOrchestrator.recordAiRequested?.();
 
   // Idempotency on existing suggestion.
   const existing = getAiSuggestion(ctx.sql, p.storyId);
