@@ -77,8 +77,34 @@ describe('checkWindowedIpLimit — KV fixed-window counter (hourly surfaces only
 
 // ---- Handler-level integration ----
 
-import worker from '../src/worker';
+import worker, { createPerHour } from '../src/worker';
 import type { Env } from '../src/worker';
+
+// Guard test (S10 soak, Step 1.2): the spec-locked create cap of 20 is
+// otherwise exercised by nothing — CI and e2e both run with
+// RL_CREATE_PER_HOUR_OVERRIDE=500 (wrangler.dev.toml). This pins prod's
+// fallthrough: unset / non-numeric / non-positive override → 20, so the
+// abuse ceiling can never silently drift open in production.
+describe('createPerHour — spec-locked create cap (RL_CREATE_PER_HOUR_OVERRIDE fallthrough)', () => {
+  const env = (RL_CREATE_PER_HOUR_OVERRIDE?: string) =>
+    ({ RL_CREATE_PER_HOUR_OVERRIDE } as unknown as Env);
+  it('unset override → spec value 20', () => {
+    expect(createPerHour(env(undefined))).toBe(20);
+  });
+  it('non-numeric override ("abc") → spec value 20', () => {
+    expect(createPerHour(env('abc'))).toBe(20);
+  });
+  it('empty-string override → spec value 20', () => {
+    expect(createPerHour(env(''))).toBe(20);
+  });
+  it('non-positive override ("0" / "-5") → spec value 20', () => {
+    expect(createPerHour(env('0'))).toBe(20);
+    expect(createPerHour(env('-5'))).toBe(20);
+  });
+  it('valid numeric override is honoured (dev/CI bump to 500)', () => {
+    expect(createPerHour(env('500'))).toBe(500);
+  });
+});
 
 function makeEnv(): { env: Env; kv: ReturnType<typeof createMockKv> } {
   const kv = createMockKv();

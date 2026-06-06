@@ -133,4 +133,20 @@ export default [
       },
     },
   },
+  // S10 soak — manually-runnable Node ESM script (`pnpm soak`). Gate-excluded
+  // (not in CI/e2e), but still linted for quality. Pure Node runtime globals.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        ...baseGlobals,
+        crypto: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+      },
+    },
+  },
 ];
