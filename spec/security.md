@@ -87,3 +87,37 @@ Verified 2026-06-03. SI-01–04 audited with code evidence; non-host regression 
   - **Note**: `Story.externalUrl` exists in `@pointe/shared` but **no UI renders it as a link today** — there are zero `<a>` tags in `apps/web/src/`. The "external URLs `rel="noopener noreferrer"`" clause is vacuously satisfied for v1; when a future iteration adds link rendering, that surface must carry the rel attributes (and a test).
 - **SI-05** AI prompt-injection defense (S8): story text as user message, `externalUrl` never sent.
 - **SI-06** Rate limiting at every external surface (§1).
+
+## 3. Deployment mechanism notes
+
+A platform-mechanism shelf for deploy/ops behaviour that is true regardless
+of when a dependent feature ships — same posture as the §1.5 DO-initiated
+`webSocketClose` breadcrumb. Not a security invariant; lives here because
+this is the in-repo ops doc until a dedicated `deployment.md` exists.
+
+### Fingerprinted-asset 404 under gradual rollouts
+
+When a Worker serves the static SPA, **percentage / gradual rollouts can
+break fingerprinted assets**. The HTML and the bundles it references are
+fetched in separate requests, and a gradual rollout splits live traffic
+across two Worker versions at once:
+
+1. A user's `GET /` is served by Version A — HTML that references
+   `index-A.js` (the hash Vite emitted for that build).
+2. The browser's follow-up `GET /index-A.js` routes to Version B, which
+   only carries `index-B.js`.
+3. `index-A.js` → **404** → the SPA fails to boot for that user.
+
+This affects any framework that content-hashes its bundles — Vite (what
+Pointe uses) included. It is a *rollout* hazard, not a build bug.
+
+**Pointe is not exposed today.** Deploys are a full `wrangler deploy` on
+push to `main` (one atomic version cutover) — no gradual or percentage
+rollouts, so all live traffic is on a single Worker version at any instant
+and the cross-version asset mismatch cannot occur.
+
+**The trap for future-us:** enabling gradual rollouts *will* trigger this
+unless the documented static-asset handling for split-version traffic is
+applied first. Treat **"enable gradual rollouts"** as a change that requires
+reading Cloudflare's *Gradual rollouts* guidance on static assets **before**
+flipping it on — not after the first broken-SPA report.
