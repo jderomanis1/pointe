@@ -14,17 +14,10 @@
       https://developers.cloudflare.com/web-analytics/get-started/ —
       `beacon.min.js` is the cookieless variant; it does NOT set or read
       cookies, and reports aggregate visit/page-view counts to the CF
-      dashboard. Token below is the public beacon token (NOT a secret);
-      it's safe to commit. Replace BEACON_TOKEN_PLACEHOLDER with the
-      real token from the CF Web Analytics dashboard (one-step config:
-      Joe creates a property in CF dashboard → copies the token here).
-      Until then the script loads but reports no data — no privacy or
-      runtime impact either way.
+      dashboard. The token is the public beacon site identifier (it ships
+      in page source) — NOT a secret, safe to commit. `data-cf-beacon` is
+      an attribute (not inline script), so it needs no `unsafe-inline`.
     -->
-    <script
-      defer
-      src="https://static.cloudflareinsights.com/beacon.min.js"
-      data-cf-beacon='{"token": "BEACON_TOKEN_PLACEHOLDER"}'
-    ></script>
+    <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "840b76e2878748559a2461cc189d7e00"}'></script>
   </body>
 </html>
