@@ -49,8 +49,13 @@ export interface Env {
   RL_CREATE_PER_HOUR_OVERRIDE?: string;
 }
 
-/** Resolve the create rate-limit cap, honouring the dev/CI override. */
-function createPerHour(env: Env): number {
+/**
+ * Resolve the create rate-limit cap, honouring the dev/CI override.
+ * Exported for the guard test: prod (override unset / non-numeric / ≤0)
+ * MUST stay pinned to the spec value 20 — CI + e2e run at 500, so nothing
+ * else exercises the 20 default. See rateLimit.test.ts.
+ */
+export function createPerHour(env: Env): number {
   const raw = env.RL_CREATE_PER_HOUR_OVERRIDE;
   if (!raw) return RL_CREATE_PER_HOUR;
   const parsed = parseInt(raw, 10);
