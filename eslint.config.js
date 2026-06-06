@@ -133,8 +133,12 @@ export default [
       },
     },
   },
-  // S10 soak — manually-runnable Node ESM script (`pnpm soak`). Gate-excluded
-  // (not in CI/e2e), but still linted for quality. Pure Node runtime globals.
+  // S10 soak / S11 hero capture — manually-runnable Node ESM scripts
+  // (`pnpm soak`, `node scripts/capture-hero.mjs`). Gate-excluded (not in
+  // CI/e2e), but still linted for quality. Node runtime globals, plus
+  // `URL`, and the browser globals (`document`, `localStorage`) referenced
+  // inside Playwright `page.evaluate` callbacks — same pattern as the e2e
+  // config: the reference is in source, the call site is the page.
   {
     files: ['scripts/**/*.mjs'],
     languageOptions: {
@@ -146,6 +150,9 @@ export default [
         clearTimeout: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',
+        URL: 'readonly',
+        document: 'readonly',
+        localStorage: 'readonly',
       },
     },
   },
