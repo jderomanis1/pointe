@@ -18,7 +18,7 @@ These describe the product Pointe is being built toward. The foundation is live;
 
 ### Anti-anchoring AI (CERU reasoning)
 
-Pointe is designed around CERU — Commit, Expose, Reason, Update — a deliberate sequence that surfaces genuine thinking before social dynamics shape the consensus. Voters commit both their estimate and their reasoning privately before anything is revealed. The AI's role is to question assumptions in that reasoning, not to suggest a different number.
+Pointe is designed around CERU — Complexity, Effort, Risk, Unknowns, — a deliberate sequence that surfaces genuine thinking before social dynamics shape the consensus. Voters commit both their estimate and their reasoning privately before anything is revealed. The AI's role is to question assumptions in that reasoning, not to suggest a different number.
 
 ### Async outlier discussion
 
