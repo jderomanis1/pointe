@@ -55,7 +55,7 @@ Two Workers run in production. `pointe-web` serves the React app at [pointe.team
 
 ## Status
 
-**Active development — Phase 2, January 2026.**
+**Active development — Phase 2, June 2026.**
 
 | Phase | Status | Description |
 |-------|--------|-------------|
