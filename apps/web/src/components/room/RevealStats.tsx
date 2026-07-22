@@ -45,26 +45,6 @@ export function RevealStats({
 
   return (
     <section className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-meta text-text-secondary mb-2">Result</h3>
-        {allNonNumeric ? (
-          <p className="text-heading font-serif text-text">Needs discussion</p>
-        ) : (
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <span
-              className={cn(
-                'font-mono text-num-hero text-text leading-tight',
-                animateReveal ? 'anim-reveal-median' : '',
-              )}
-              aria-label={`Median ${stats.median}`}
-            >
-              {stats.median}
-            </span>
-            <span className="text-meta text-text-secondary">median</span>
-          </div>
-        )}
-      </div>
-
       <dl className="grid gap-3 grid-cols-1 sm:grid-cols-2">
         {!allNonNumeric ? (
           <div>
@@ -100,7 +80,7 @@ export function RevealStats({
         <div
           role="status"
           className={cn(
-            'flex items-start gap-2 rounded-md bg-warning-surface text-warning-on px-3 py-2',
+            'flex items-start gap-2 rounded-[2px] bg-warning-surface text-warning-on px-3 py-2',
             animateReveal ? 'anim-reveal-flag' : '',
           )}
         >

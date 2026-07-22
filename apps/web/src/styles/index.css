@@ -94,6 +94,16 @@ body::after {
    reveal sequence with the 5-phase RAF choreography)
    ============================================================ */
 
+/* Section 4.3 — Roster Join: height stamp (0→40px, 80ms) + slide (-8px→0, 50ms, 80ms delay) */
+@keyframes roster-join-height {
+  from { max-height: 0; overflow: hidden; }
+  to   { max-height: 40px; overflow: hidden; }
+}
+@keyframes roster-join-slide {
+  from { transform: translateX(-8px); }
+  to   { transform: translateX(0); }
+}
+
 /* Section 4.1 Phase 5 — Consensus Stamp Slam (scale 1.4 → 1.0 at fixed −3deg rotation) */
 @keyframes stamp-slam {
   from { transform: rotate(-3deg) scale(1.4); }
@@ -125,6 +135,11 @@ body::after {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .anim-roster-join {
+    animation:
+      roster-join-height 80ms linear both,
+      roster-join-slide  50ms var(--ease-mechanical) 80ms both;
+  }
   .anim-stamp-slam {
     animation: stamp-slam 80ms var(--ease-mechanical) 400ms both;
   }
