@@ -27,7 +27,7 @@ export function StoryExternalRef({
   const linkClass = cn(
     'font-mono text-meta text-text-secondary',
     'underline-offset-2 hover:underline hover:text-accent transition-colors duration-fast',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-sm',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[2px]',
     className,
   );
 

@@ -74,7 +74,7 @@ export function VoterSeats({
             {spectators.map((v) => (
               <li
                 key={v.id}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-fill text-text-muted text-meta"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-[2px] bg-fill text-text-muted text-meta"
               >
                 <span className="truncate">{v.displayName}</span>
               </li>
@@ -94,7 +94,7 @@ function ActiveSeat({ v, hasVoted, isMe }: { v: Voter; hasVoted: boolean; isMe: 
       data-testid={`seat-${v.id}`}
       data-voted={hasVoted ? 'true' : 'false'}
       className={cn(
-        'inline-flex items-center gap-2 px-3 py-1.5 rounded-pill border',
+        'inline-flex items-center gap-2 px-3 py-1.5 rounded-[2px] border',
         hasVoted ? 'border-accent bg-accent-tint text-accent' : 'border-hairline bg-surface text-text-secondary',
       )}
     >
@@ -111,11 +111,10 @@ function PresenceDot({ voted }: { voted: boolean }) {
     <span
       role="img"
       aria-label={voted ? 'voted' : 'not yet'}
-      className={cn(
-        'inline-block h-2 w-2 rounded-pill',
-        voted ? 'bg-accent' : 'bg-text-muted',
-      )}
-    />
+      className={cn('text-[10px] leading-none', voted ? 'text-accent' : 'text-text-muted')}
+    >
+      {voted ? '●' : '○'}
+    </span>
   );
 }
 
@@ -136,7 +135,7 @@ function RevealedSeat({
       data-revealed="true"
       data-outlier={outlier ? 'true' : 'false'}
       className={cn(
-        'inline-flex items-center gap-3 px-3 py-2 rounded-md border bg-surface',
+        'inline-flex items-center gap-3 px-3 py-2 rounded-[2px] border bg-surface',
         outlier ? 'border-warning' : 'border-hairline',
         animate ? 'anim-reveal-seat' : '',
       )}
@@ -163,16 +162,16 @@ function RevealedSeat({
 
 function ConfidenceDots({ level }: { level: number }) {
   return (
-    <div role="img" aria-label={`Confidence ${level} of 5`} className="flex items-center gap-1">
+    <div role="img" aria-label={`Confidence ${level} of 5`} className="flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map((lvl) => (
         <span
           key={lvl}
           data-filled={lvl <= level ? 'true' : 'false'}
-          className={cn(
-            'inline-block h-1.5 w-1.5 rounded-pill',
-            lvl <= level ? 'bg-text-secondary' : 'bg-fill',
-          )}
-        />
+          className={cn('text-[8px] leading-none', lvl <= level ? 'text-text-secondary' : 'text-text-muted opacity-30')}
+          aria-hidden="true"
+        >
+          ●
+        </span>
       ))}
     </div>
   );
