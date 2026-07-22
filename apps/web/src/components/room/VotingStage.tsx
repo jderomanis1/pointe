@@ -13,6 +13,7 @@ import { useSend } from './RoomClientContext';
 import { AiSuggestionPanel } from './AiSuggestionPanel';
 import { HostAiSection } from './HostAiSection';
 import { StoryExternalRef } from './StoryExternalRef';
+import { TableDeck } from './TableDeck';
 
 /**
  * The active-story focus, branched by story.state:
@@ -53,7 +54,7 @@ export function VotingStage({ story }: { story: Story }) {
   const isRevealed = story.state === 'revealed' || story.state === 'committed';
 
   return (
-    <section className="bg-surface border border-hairline rounded-md p-6 md:p-8 flex flex-col gap-6">
+    <section className="bg-surface border border-hairline rounded-[2px] p-6 md:p-8 flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-3 flex-wrap">
           <Badge variant={isRevealed ? 'success' : 'accent'}>
@@ -141,9 +142,12 @@ export function VotingStage({ story }: { story: Story }) {
           {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
         </>
       ) : (
-        <div data-slot="cast">
-          {canVote ? <CastPanel story={story} /> : null}
-        </div>
+        <>
+          <TableDeck storyId={story.id} />
+          <div data-slot="cast">
+            {canVote ? <CastPanel story={story} /> : null}
+          </div>
+        </>
       )}
 
       {/* S8.iii.c3 — host-only AI affordance + panel. Pre-reveal only:
