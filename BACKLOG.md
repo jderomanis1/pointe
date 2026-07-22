@@ -45,3 +45,9 @@ flush (brief [× OFFLINE] flash on `voter_left` receipt) is the minimum presenta
 approximation achievable without this server change.
 
 ---
+
+## Branch protection / process hardening
+
+Require CI status check on main. Document manual E2E dispatch (`workflow_dispatch` on `e2e.yml`) as the explicit pre-merge step for any PR touching UI or WebSocket code. (E2E is deliberately excluded from `pull_request` triggers — see `.github/workflows/e2e.yml` comment.)
+
+---

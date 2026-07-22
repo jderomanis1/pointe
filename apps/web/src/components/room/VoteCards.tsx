@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { cn } from '../../lib/cn';
 
 // --ease-snap for all micro-interactions per Section 3.1.
@@ -29,7 +29,7 @@ export function VoteCards({
 }) {
   const groupRef = useRef<HTMLDivElement>(null);
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: ReactKeyboardEvent) {
     if (!groupRef.current) return;
     const cards = Array.from(
       groupRef.current.querySelectorAll<HTMLButtonElement>('[role="radio"]:not([disabled])')

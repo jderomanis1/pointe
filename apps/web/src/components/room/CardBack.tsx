@@ -1,8 +1,9 @@
+import type { CSSProperties } from 'react';
 import { cn } from '../../lib/cn';
 
 // Cross-hatch gradient replicates the ink hatching pattern from DESIGN_SPEC Section 3.2.
 // Inline style keeps the long repeating-linear-gradient readable; all values are tokens.
-const HATCH: React.CSSProperties = {
+const HATCH: CSSProperties = {
   backgroundImage:
     'repeating-linear-gradient(45deg, var(--border-hairline) 0, var(--border-hairline) 1px, transparent 0, transparent 8px)',
 };
