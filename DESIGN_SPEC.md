@@ -1,10 +1,11 @@
 # DESIGN_SPEC.md — Pointe.team (Paper & Press)
 
-> **Design System & Component Specification v1.2 — CONSOLIDATED**
+> **Design System & Component Specification v1.3 — CONSOLIDATED**
 > **Supersedes:** DESIGN_SPEC v1.0 + ADDENDUM v1.1 (fully merged; do not reference prior documents)
 > **Target Audience:** AI Code Generation Agents (Claude Code)
 > **Aesthetic Archetype:** Paper & Press — Tactile Brutalist Editorial Print
 > **Changelog v1.2:** Merged addendum components; resolved all contradictions; bumped `--text-tertiary` for WCAG AA; added Section 6 (Accessibility & Reduced Motion — engineering quality gate); standardized consensus microcopy; replaced emoji glyphs.
+> **Changelog v1.3:** Section 3.9 correction — ConsensusStamp and Badge text on `--color-success-surface` must use `var(--color-success-on)`, not `var(--semantic-emerald)`. In light mode `--semantic-emerald` (`#059669`) on the emerald tint over `#F4F1EA` yields 2.98:1 (fails AA). `--color-success-on` is set to `#064E3B` in the light theme block (7.70:1) and inherits `#10B981` in dark (5.44:1). The accent emerald token is for borders only; the on-surface text token is theme-specific.
 
 ---
 
@@ -306,7 +307,8 @@ AVERAGE: 5.6 PTS   |   CONSENSUS: NONE   |   TOTAL VOTES: 8
 Triggered on reveal when all non-observer participants share the exact same value.
 
 * **Text (canonical, use everywhere):** `★ UNANIMOUS CONSENSUS: [X] PTS`
-* `border: 3px solid var(--semantic-emerald)`; `color: var(--semantic-emerald)`; `background: var(--semantic-emerald-bg)`
+* `border: 3px solid var(--semantic-emerald)`; `color: var(--color-success-on)`; `background: var(--semantic-emerald-bg)`
+* **v1.3 note:** Use `var(--color-success-on)` (not `var(--semantic-emerald)`) for stamp text — the accent token fails WCAG AA in light mode. `--color-success-on` is theme-specific: `#064E3B` (light, 7.70:1) / `#10B981` (dark, 5.44:1).
 * `font-family: var(--font-mono)`; `font-weight: 800`; `text-transform: uppercase`
 * **Rotation (canonical): `rotate(-3deg)`** — this value everywhere; `-12deg` references are void
 * `box-shadow: var(--shadow-stamp)`; `padding: 16px 32px`

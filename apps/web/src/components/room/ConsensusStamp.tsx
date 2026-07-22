@@ -27,7 +27,7 @@ export function ConsensusStamp({ storyId, animate }: { storyId: string; animate:
       role="status"
       className={cn(
         'self-start rotate-[-3deg]',
-        'border-[3px] border-success text-success bg-success-surface',
+        'border-[3px] border-success text-success-on bg-success-surface',
         'font-mono font-black uppercase tracking-[0.12em] px-8 py-4',
         'shadow-[var(--shadow-stamp)]',
         animate && !reduced && 'anim-stamp-slam',
