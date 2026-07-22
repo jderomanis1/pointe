@@ -372,8 +372,12 @@ When the host clicks Reveal, the sequence progresses strictly:
 
 ### 4.4 Roster Leave / Disconnect: "Redaction Fade"
 
-1. Status switches instantly to `[× OFFLINE]`; text color → `var(--text-tertiary)`.
-2. After `500ms` buffer, row collapses `40px → 0px` instantly — zero smooth transition.
+**State model note (confirmed 2025-07-22):** `ConnectionState = 'connected' | 'reconnecting' | 'left'`. `'reconnecting'` is a network drop (temporary); `'left'` is an explicit leave (permanent). These must be treated differently:
+
+* **`reconnecting` (network drop):** Status switches instantly to `[× OFFLINE]`; text color → `var(--text-tertiary)`; row opacity → `0.45`. Row persists — no collapse. TableDeck slot persists at `0.45` opacity; if voter already played a card, the face-down tile stays full-hatch (vote still reveals).
+* **`left` (explicit leave):** The 500ms Redaction Fade applies: status → `[× OFFLINE]`, then after `500ms` buffer, row collapses `40px → 0px` instantly. TableDeck slot is removed on `left`. Increment 6 must follow this same rule.
+
+> The 500ms row collapse applies to explicit leaves (`'left'`) only. Reconnecting voters persist as `[× OFFLINE]` until they reconnect or explicitly leave.
 
 ---
 
