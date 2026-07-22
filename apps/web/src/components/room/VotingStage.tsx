@@ -14,6 +14,7 @@ import { AiSuggestionPanel } from './AiSuggestionPanel';
 import { HostAiSection } from './HostAiSection';
 import { StoryExternalRef } from './StoryExternalRef';
 import { TableDeck } from './TableDeck';
+import { ParticipantRoster } from './ParticipantRoster';
 
 /**
  * The active-story focus, branched by story.state:
@@ -110,11 +111,11 @@ export function VotingStage({ story }: { story: Story }) {
         ) : null}
       </header>
 
-      <VoterSeats
-        activeStoryId={story.id}
-        mode={isRevealed ? 'revealed' : 'active'}
-        animateReveal={animateReveal}
-      />
+      {isRevealed ? (
+        <VoterSeats activeStoryId={story.id} mode="revealed" animateReveal={animateReveal} />
+      ) : (
+        <ParticipantRoster storyId={story.id} />
+      )}
 
       {isHost && splitOpen && (story.state === 'active' || story.state === 'revealed') ? (
         <SplitForm storyId={story.id} onClose={() => setSplitOpen(false)} />
