@@ -214,7 +214,7 @@ describe('S9.iii — review ⇄ active switch (reactive)', () => {
       expect(document.querySelector('[data-slot="review-host-screen"]')).not.toBeInTheDocument();
     });
     // Host sees the Reveal-votes affordance on the active story (sync VotingStage).
-    expect(screen.getByRole('button', { name: /Reveal votes/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Execute Reveal/i })).toBeInTheDocument();
 
     // Return.
     act(() => {

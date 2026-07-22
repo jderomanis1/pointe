@@ -18,7 +18,7 @@ export function PointeToast({ message, onDismiss }: { message: string; onDismiss
       <span>{message}</span>
       <button
         onClick={onDismiss}
-        className="font-mono text-meta uppercase tracking-[0.08em] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-vermilion)]"
+        className="font-mono text-meta uppercase tracking-[0.08em] focus-visible:[outline:2px_solid_var(--accent-vermilion)]"
         aria-label="Dismiss toast"
       >
         [DISMISS]

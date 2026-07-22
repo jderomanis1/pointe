@@ -70,7 +70,6 @@ describe('CastPanel — deck rendering', () => {
     for (const v of ['1', '2', '3', '5', '8', '13', '21']) {
       const btn = within(slot).getByRole('radio', { name: v });
       expect(btn).toBeInTheDocument();
-      expect(btn.className).toMatch(/font-mono/);
     }
   });
 

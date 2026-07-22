@@ -10,7 +10,7 @@ describe('CreatePage', () => {
   it('renders the display-name input and the create button', () => {
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     expect(screen.getByLabelText('Your name')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create room' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create Session' })).toBeInTheDocument();
   });
 });
 
@@ -36,7 +36,7 @@ describe('CreatePage — S9.ii.c2 mode toggle', () => {
   it('default submit sends mode:"sync"', async () => {
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     await userEvent.type(screen.getByLabelText('Your name'), 'Alice');
-    await userEvent.click(screen.getByRole('button', { name: 'Create room' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create Session' }));
     await waitFor(() => {
       expect(api.createRoom).toHaveBeenCalledWith({
         hostDisplayName: 'Alice',
@@ -49,7 +49,7 @@ describe('CreatePage — S9.ii.c2 mode toggle', () => {
     render(<MemoryRouter><CreatePage /></MemoryRouter>);
     await userEvent.type(screen.getByLabelText('Your name'), 'Alice');
     await userEvent.click(screen.getByRole('radio', { name: /Async window/i }));
-    await userEvent.click(screen.getByRole('button', { name: 'Create room' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create Session' }));
     await waitFor(() => {
       expect(api.createRoom).toHaveBeenCalledWith({
         hostDisplayName: 'Alice',

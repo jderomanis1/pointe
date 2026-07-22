@@ -45,6 +45,9 @@ export function RevealStats({
 
   return (
     <section className="flex flex-col gap-4">
+      {allNonNumeric ? (
+        <p className="font-serif text-heading text-text">Needs discussion</p>
+      ) : null}
       <dl className="grid gap-3 grid-cols-1 sm:grid-cols-2">
         {!allNonNumeric ? (
           <div>

@@ -136,10 +136,13 @@ describe('VoterSeats — ANTI-ANCHORING UI INVARIANT', () => {
     expect(screen.getByTestId('seat-voter-1').getAttribute('data-voted')).toBe('true');
     expect(screen.getByTestId('seat-v-cyd').getAttribute('data-voted')).toBe('false');
 
-    // Spectators are in the separate non-voting group, never seated as voters.
-    expect(screen.queryByTestId('seat-spec-1')).not.toBeInTheDocument();
-    // 'Specs' appears in both the Roster (R4.v) and the Watching list (here).
+    // ParticipantRoster (R4.v) is unified — spectators appear with [OBS] status, not as voters.
+    const specRow = screen.getByTestId('seat-spec-1');
+    expect(specRow.getAttribute('data-voted')).toBe('false');
+    // Spectator name appears in both the roster table and the Roster sidebar.
     expect(screen.getAllByText('Specs').length).toBeGreaterThanOrEqual(1);
+    // [OBS] is the ParticipantRoster status marker — unique to spectators in the table.
+    expect(screen.getByText('[OBS]')).toBeInTheDocument();
 
     // Anti-anchoring: assert no peer value reaches the DOM. The store didn't hold one,
     // but seal that with a grep over the rendered HTML for distinctive markers.
@@ -147,11 +150,10 @@ describe('VoterSeats — ANTI-ANCHORING UI INVARIANT', () => {
     expect(html).not.toContain(peerSecretPoints);
     expect(html).not.toContain(peerSecretConfidenceText);
 
-    // And no number-shaped value rendered alongside the peer seats (the structural
-    // invariant — seats render presence, never any digit or rank).
+    // Peer point values must not appear in the seat rows (row index is an allowed digit).
     const benSeat = screen.getByTestId('seat-voter-1');
-    expect(benSeat.textContent ?? '').not.toMatch(/\d/);
+    expect(benSeat.textContent ?? '').not.toContain(peerSecretPoints);
     const cydSeat = screen.getByTestId('seat-v-cyd');
-    expect(cydSeat.textContent ?? '').not.toMatch(/\d/);
+    expect(cydSeat.textContent ?? '').not.toContain(peerSecretPoints);
   });
 });

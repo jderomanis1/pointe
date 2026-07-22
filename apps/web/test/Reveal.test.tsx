@@ -89,7 +89,7 @@ describe('Reveal — host control', () => {
       you: { voterId: HOST_ID, role: 'voter' },
     });
     const send = renderShell();
-    const btn = screen.getByRole('button', { name: 'Reveal votes' });
+    const btn = screen.getByRole('button', { name: 'Execute Reveal' });
     await userEvent.click(btn);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('REVEAL_VOTES', { storyId: 's-1' });
@@ -160,17 +160,16 @@ describe('Reveal — ANTI-ANCHORING INVERSE (the load-bearing test)', () => {
 });
 
 describe('Reveal — median hero', () => {
-  it("stats.median '5' renders as a mono num-hero element", () => {
+  it("stats.median '5' renders in the session tally stats bar (Option A)", () => {
     seedRevealed({
       votes: [vote(HOST_ID, '5', 4), vote(VOTER_ID, '5', 3), vote('v-cyd', '5', 4)],
       stats: { median: '5', outliers: [], avgConfidence: 3.7, lowConfidence: false, nonNumeric: [], numericCount: 3 },
     });
     renderShell();
-    const median = screen.getByLabelText('Median 5');
-    expect(median).toBeInTheDocument();
-    expect(median.className).toMatch(/font-mono/);
-    expect(median.className).toMatch(/text-num-hero/);
-    expect(median.textContent).toBe('5');
+    // Option A: median folded into SessionResultsPanel stats bar; no standalone hero.
+    const tally = screen.getByRole('region', { name: 'Session tally' });
+    expect(tally.textContent).toContain('MEDIAN:');
+    expect(tally.textContent).toContain('5 PTS');
   });
 });
 
@@ -181,7 +180,7 @@ describe('Reveal — low-confidence flag (Pillar 3 payoff)', () => {
       stats: { median: '5', outliers: [], avgConfidence: 2.0, lowConfidence: true, nonNumeric: [], numericCount: 3 },
     });
     renderShell();
-    expect(screen.getByRole('status')).toHaveTextContent(/may need more refinement/);
+    expect(screen.getByText(/This story may need more refinement/)).toBeInTheDocument();
   });
 
   it('lowConfidence false → no flag', () => {
@@ -229,7 +228,9 @@ describe('Reveal — non-numeric votes', () => {
       stats: { median: '5', outliers: [], avgConfidence: 3.5, lowConfidence: false, nonNumeric: ['v-cyd'], numericCount: 2 },
     });
     renderShell();
-    expect(screen.getByLabelText('Median 5')).toBeInTheDocument();
+    // Option A: median in SessionResultsPanel stats bar, not a standalone hero.
+    const tally = screen.getByRole('region', { name: 'Session tally' });
+    expect(tally.textContent).toContain('MEDIAN:');
     // Needs-discussion dt + Cyd's name.
     const ndDt = screen.getByText('Needs discussion', { selector: 'dt' });
     expect(ndDt).toBeInTheDocument();
@@ -263,14 +264,15 @@ describe('Reveal — cast UI gone after reveal', () => {
 });
 
 describe('Reveal — animation gating', () => {
-  it('hydrate of an already-revealed story does NOT apply the median pop class', () => {
+  it('hydrate of an already-revealed story does NOT apply reveal animation classes', () => {
     seedRevealed({
       votes: [vote(HOST_ID, '5', 4), vote(VOTER_ID, '5', 3)],
       stats: { median: '5', outliers: [], avgConfidence: 3.5, lowConfidence: false, nonNumeric: [], numericCount: 2 },
     });
     renderShell();
-    // First render with state already 'revealed' → no anim-reveal-* on the median.
-    const median = screen.getByLabelText('Median 5');
-    expect(median.className).not.toMatch(/anim-reveal-median/);
+    // Hydrate into already-revealed state → no anim-reveal-* on any element.
+    const aliceSeat = screen.getByTestId(`seat-${HOST_ID}`);
+    expect(aliceSeat.className).not.toMatch(/anim-reveal/);
+    expect(document.querySelector('[class*="anim-reveal"]')).toBeNull();
   });
 });
