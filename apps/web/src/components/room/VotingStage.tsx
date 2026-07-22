@@ -83,7 +83,7 @@ export function VotingStage({ story }: { story: Story }) {
                 size="sm"
                 onClick={() => send('REVEAL_VOTES', { storyId: story.id })}
               >
-                Reveal votes
+                Execute Reveal
               </Button>
             </div>
           ) : null}

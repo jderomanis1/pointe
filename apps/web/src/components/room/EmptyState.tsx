@@ -41,7 +41,7 @@ export function ShareLink({ slug }: { slug: string }) {
   return (
     <div className="flex items-center gap-3">
       <Button variant="secondary" size="md" onClick={copy} leftIcon={<Link2 size={16} />}>
-        {copied ? 'Copied' : 'Copy room link'}
+        {copied ? 'Copied' : 'Copy Invite Link'}
       </Button>
       <code className="font-mono text-meta text-text-secondary truncate">{url}</code>
     </div>

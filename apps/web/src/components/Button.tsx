@@ -12,38 +12,54 @@ export type ButtonProps = {
   children: ReactNode;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>;
 
+// --ease-snap micro-interaction timing, declared explicitly since Tailwind's
+// default easing doesn't match the spec's cubic-bezier(0.1, 0.9, 0.2, 1).
+const TRANS = '[transition:transform_80ms_cubic-bezier(0.1,0.9,0.2,1),box-shadow_80ms_cubic-bezier(0.1,0.9,0.2,1),background-color_80ms_cubic-bezier(0.1,0.9,0.2,1),border-color_80ms_cubic-bezier(0.1,0.9,0.2,1),color_80ms_cubic-bezier(0.1,0.9,0.2,1),opacity_80ms_cubic-bezier(0.1,0.9,0.2,1)]';
+
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-ink hover:bg-accent-hover active:bg-accent-active disabled:bg-fill disabled:text-text-disabled',
-  secondary: 'bg-surface text-text border border-hairline hover:bg-fill disabled:text-text-disabled disabled:bg-surface',
-  ghost: 'text-text hover:bg-fill disabled:text-text-disabled',
+  // Section 3.4 — high-priority actions (EXECUTE REVEAL, CREATE SESSION)
+  primary: cn(
+    'bg-accent text-white border border-accent font-bold',
+    'shadow-[var(--shadow-hard-sm)]',
+    'hover:bg-accent-hover hover:-translate-x-px hover:-translate-y-px hover:shadow-[var(--shadow-hard-md)]',
+    'active:bg-accent-hover active:translate-x-px active:translate-y-px active:shadow-none',
+    'disabled:bg-fill disabled:text-[var(--text-tertiary)] disabled:border-hairline disabled:shadow-none disabled:opacity-60',
+  ),
+  // Section 3.5 — structural actions (COPY INVITE LINK, TOGGLE OBSERVER)
+  secondary: cn(
+    'bg-surface text-text border border-[var(--border-strong)] font-semibold',
+    'shadow-[var(--shadow-hard-sm)]',
+    'hover:bg-fill hover:-translate-x-px hover:-translate-y-px hover:shadow-[var(--shadow-hard-md)]',
+    'active:translate-x-px active:translate-y-px active:shadow-none',
+    'disabled:bg-surface disabled:text-[var(--text-tertiary)] disabled:border-hairline disabled:shadow-none disabled:opacity-50',
+  ),
+  // Section 3.6 — low-emphasis actions (LEAVE SESSION, TOGGLE THEME)
+  ghost: cn(
+    'bg-transparent text-text-secondary border border-transparent',
+    'hover:text-text hover:border-hairline hover:bg-fill',
+    'active:bg-surface active:text-accent',
+    'disabled:text-[var(--text-tertiary)] disabled:opacity-40',
+  ),
 };
 
 const SIZE: Record<ButtonSize, string> = {
   sm: 'text-meta px-3 py-1.5',
   md: 'text-body px-4 py-2',
-  lg: 'text-subhead px-6 py-3',
+  lg: 'text-subhead px-5 py-2.5',
 };
 
-const BASE = [
+const BASE = cn(
   'inline-flex items-center justify-center gap-2',
-  'rounded-md font-sans font-medium',
-  'transition-colors duration-fast',
+  'rounded-[2px] font-mono uppercase tracking-[0.08em]',
+  TRANS,
   'disabled:cursor-not-allowed',
-  // S10 a11y-keyboard §1 (resolved A): accent ring with a 2 px bg-colored
-  // offset. The primary variant has `bg-accent`, so a flush `ring-accent`
-  // would be accent-on-accent (invisible). The offset paints a 2 px gap
-  // in `--color-bg` between the button edge and the ring, so the ring
-  // reads as accent-on-bg regardless of the variant's fill. Token-only:
-  // `ring-offset-bg` resolves to `--color-bg` via Tailwind v4's
-  // `@theme inline` bridge in styles/index.css. Same offset on every
-  // variant — secondary/ghost already-visible aren't regressed; the
-  // tiny halo is a small consistency win.
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-  'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-].join(' ');
+  // Section 6 focus-visible: outline ring, no box-shadow ring.
+  // [outline-offset] inherits the 2px spec value; ghost overrides to 0px inline.
+  'focus-visible:[outline:2px_solid_var(--border-focus)] focus-visible:[outline-offset:2px]',
+);
 
-// `forwardRef` so callers can take a ref to the underlying <button> —
-// used by S10 a11y-keyboard §2 (REVEAL→Commit focus, CommitPanel).
+// `forwardRef` so callers can ref the underlying <button> (CommitPanel focus
+// management after reveal).
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = 'primary',

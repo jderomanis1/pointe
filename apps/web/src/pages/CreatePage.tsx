@@ -91,7 +91,7 @@ export function CreatePage() {
 
           <div>
             <Button type="submit" variant="primary" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create room'}
+              {submitting ? 'Creating Session…' : 'Create Session'}
             </Button>
           </div>
         </form>
