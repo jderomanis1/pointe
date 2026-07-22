@@ -18,6 +18,7 @@ import { ParticipantRoster } from './ParticipantRoster';
 import { RevealDeck } from './RevealDeck';
 import { ConsensusStamp } from './ConsensusStamp';
 import { VarianceBanner } from './VarianceBanner';
+import { SessionResultsPanel } from './SessionResultsPanel';
 
 /**
  * The active-story focus, branched by story.state:
@@ -131,6 +132,7 @@ export function VotingStage({ story }: { story: Story }) {
           <ConsensusStamp storyId={story.id} animate={animateReveal} />
           <VarianceBanner storyId={story.id} />
           <RevealStats storyId={story.id} animateReveal={animateReveal} />
+          <SessionResultsPanel storyId={story.id} />
           {/* S8.iv.c3 — AI panel BELOW the team result. Hierarchy is product
            *  hierarchy: team estimate is primary, AI is secondary reference.
            *  Render only when `story.ai` exists, which means:
