@@ -1,11 +1,12 @@
 # DESIGN_SPEC.md — Pointe.team (Paper & Press)
 
-> **Design System & Component Specification v1.3 — CONSOLIDATED**
+> **Design System & Component Specification v1.4 — CONSOLIDATED**
 > **Supersedes:** DESIGN_SPEC v1.0 + ADDENDUM v1.1 (fully merged; do not reference prior documents)
 > **Target Audience:** AI Code Generation Agents (Claude Code)
 > **Aesthetic Archetype:** Paper & Press — Tactile Brutalist Editorial Print
 > **Changelog v1.2:** Merged addendum components; resolved all contradictions; bumped `--text-tertiary` for WCAG AA; added Section 6 (Accessibility & Reduced Motion — engineering quality gate); standardized consensus microcopy; replaced emoji glyphs.
 > **Changelog v1.3:** Section 3.9 correction — ConsensusStamp and Badge text on `--color-success-surface` must use `var(--color-success-on)`, not `var(--semantic-emerald)`. In light mode `--semantic-emerald` (`#059669`) on the emerald tint over `#F4F1EA` yields 2.98:1 (fails AA). `--color-success-on` is set to `#064E3B` in the light theme block (7.70:1) and inherits `#10B981` in dark (5.44:1). The accent emerald token is for borders only; the on-surface text token is theme-specific.
+> **Changelog v1.4:** Systematic contrast audit — Section A added (Contrast-Verified Token Pairings). New token `--color-accent-on` (text on all `bg-accent-tint` surfaces). `--color-warning-on` / `--color-error-on` now have explicit values in both theme blocks (previous dark-only values cascaded incorrectly in light mode). Dark `--text-tertiary` bumped `#8A8A8A` → `#929292` (was 4.27:1 on surface-raised; now 4.86:1). Root cause: same-family color on its own tinted surface cannot self-contrast — all accent text now uses dedicated `-on` tokens per theme. Solid CTA button (`accent-ink` on `accent` fill, 3.44:1 dark) remains a known exception pending design decision (see Section A).
 
 ---
 
@@ -48,7 +49,7 @@ A refined, brutalist editorial print publication designed for craft-obsessed sof
   /* Typography & Ink */
   --text-primary: #ECEFF4;         /* Crisp Off-White Newsprint Text */
   --text-secondary: #A1A1AA;       /* Muted Editorial Caption Gray */
-  --text-tertiary: #8A8A8A;        /* Subdued Index / Rule Color (v1.2: bumped from #666666 for WCAG AA ~4.8:1 on --surface-base) */
+  --text-tertiary: #929292;        /* Subdued Index / Rule Color (v1.4: bumped from #8A8A8A — was 4.27:1 on surface-raised, fails AA; now 4.86:1) */
   --text-inverse: #121212;         /* Dark Ink Text for Light Backgrounds */
 
   /* Brand Primary & Accents */
@@ -420,9 +421,12 @@ Implementation note: the count-up random cycle (25ms flashing values) MUST be fu
 
 ### 6.2 Contrast Compliance
 
-* `--text-tertiary` values are set to pass WCAG AA (≥4.5:1) against `--surface-base` in both themes (see v1.2 token changes). Do not revert to `#666666` / `#88837A`.
+* `--text-tertiary` is set to pass WCAG AA (≥4.5:1) on all surfaces in both themes (v1.4 dark: `#929292`, 5.36:1 / surface-base, 4.86:1 / surface-raised). Do not revert to `#8A8A8A` or `#666666`.
 * `--text-tertiary` never below 12px.
 * Verify vermilion-on-canvas combinations remain ≥4.5:1 when used for text (dark mode `#FF4500` on `#121212` ≈ 4.9:1 — passes; do not use vermilion text on `--surface-raised`).
+* **On-tint text rule (v1.4):** Semantic accent colors (`--color-accent`, `--color-success`, `--color-warning`, `--color-error`) are for borders and fills only. Text placed on tinted surfaces (`bg-accent-tint`, `bg-success-surface`, `bg-warning-surface`, `bg-error-surface`) MUST use the dedicated `-on` token (`text-accent-on`, `text-success-on`, `text-warning-on`, `text-error-on`). Using the base accent token on its own tint fails AA — e.g., `text-accent` on `bg-accent-tint` yields 4.27:1 dark / 3.91:1 light.
+* Every `-on` token is explicitly set in BOTH theme blocks in `tokens.css`. Do not rely on cascade for on-tokens.
+* See Section A for the full verified pairing table.
 
 ### 6.3 Screen Reader Choreography
 
@@ -453,3 +457,24 @@ Implementation note: the count-up random cycle (25ms flashing values) MUST be fu
 8. [ ] **Focus-visible:** every interactive element per its component spec.
 9. [ ] **SR announcements:** Section 6.3 verified with VoiceOver or NVDA pass.
 10. [ ] **No emoji in UI:** text glyphs only.
+
+---
+
+## Section A — Contrast-Verified Token Pairings
+
+Minimum WCAG AA: 4.5:1 normal text. Computed with sRGB linearization (WCAG 2.1 formula). Tint surfaces are alpha-blended over the named base. Values rounded to 2 dp.
+
+| Foreground / Background | Dark · surface-base | Dark · surface-raised | Light · surface-base | Light · bg-canvas |
+|-------------------------|--------------------|-----------------------|---------------------|-------------------|
+| `text-tertiary` on solid surface<br>`#929292` (dk) · `#5E5A54` (lt) | 5.36:1 ✓ | 4.86:1 ✓ | 6.07:1 ✓ | 6.85:1 ✓ |
+| `accent-on` on `accent-tint`<br>`#FF7000` (dk) · `#B02F00` (lt) | 5.30:1 ✓ | 4.82:1 ✓ | 5.10:1 ✓ | 4.65:1 ✓ |
+| `warning-on` on `warning-surface`<br>`#F59E0B` (dk) · `#92400E` (lt) | 6.61:1 ✓ | 5.99:1 ✓ | 5.52:1 ✓ | 5.03:1 ✓ |
+| `error-on` on `error-surface`<br>`#F87171` (dk) · `#991B1B` (lt) | 5.55:1 ✓ | 5.07:1 ✓ | 6.27:1 ✓ | 5.71:1 ✓ |
+| `success-on` on `success-surface` _(v1.3 ref)_<br>`#10B981` (dk) · `#064E3B` (lt) | 5.44:1 ✓ | 4.92:1 ✓ | 7.70:1 ✓ | 7.02:1 ✓ |
+| `accent-ink` on `accent` — solid CTA button<br>`#FFFFFF` on `#FF4500` (dk) · `#D03800` (lt) | **3.44:1 ✗** | — | 4.94:1 ✓ | — |
+
+**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. All fixed in v1.4.
+
+**Deferred:** The `accent-ink` / `accent` pair fails in dark mode only (3.44:1). Solid CTA buttons (`bg-accent text-accent-ink`) use vermilion fill with white ink — cannot reach 4.5:1 at this hue brightness. Fix requires either a dark ink on the solid fill or a lighter vermilion. Deferred pending design decision.
+
+**Maintenance rule:** When adding a new semantic color family, include a dedicated `-on` token for text on its tinted surface, set explicitly in both theme blocks, verified in both themes (all four surface columns). Add a new row to this table before shipping.

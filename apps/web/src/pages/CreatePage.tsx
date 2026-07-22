@@ -129,7 +129,7 @@ function ModeOption({
       className={cn(
         'flex-1 text-left rounded-md p-3 border transition-colors duration-fast',
         active
-          ? 'border-accent bg-accent-tint text-accent'
+          ? 'border-accent bg-accent-tint text-accent-on'
           : 'border-hairline bg-surface text-text hover:bg-fill',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
       )}

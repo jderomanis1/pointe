@@ -61,7 +61,7 @@ export function SessionResultsPanel({ storyId }: { storyId: string }) {
         )}
         <span>
           <span className="text-text-muted">CONSENSUS: </span>
-          <span className={cn('font-serif', allSame ? 'text-success' : 'text-text')}>
+          <span className={cn('font-serif', allSame ? 'text-success-on' : 'text-text')}>
             {allSame ? `${votes[0].points} PTS` : 'NONE'}
           </span>
         </span>
@@ -93,7 +93,7 @@ export function SessionResultsPanel({ storyId }: { storyId: string }) {
                 </td>
                 <td className="pr-3 py-2 whitespace-nowrap">
                   {isOutlier ? (
-                    <span className="text-caption text-error bg-error-surface border border-error px-1.5 py-0.5">
+                    <span className="text-caption text-error-on bg-error-surface border border-error px-1.5 py-0.5">
                       [OUTLIER]
                     </span>
                   ) : null}

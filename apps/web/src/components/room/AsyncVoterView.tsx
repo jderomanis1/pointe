@@ -336,7 +336,7 @@ function PrimaryCommit({
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         canSubmit
           ? 'bg-accent text-accent-ink hover:bg-accent-hover active:bg-accent-active'
-          : 'bg-transparent text-accent border border-accent hover:bg-accent-tint',
+          : 'bg-transparent text-accent border border-accent hover:bg-accent-tint hover:text-accent-on',
       )}
     >
       {label}

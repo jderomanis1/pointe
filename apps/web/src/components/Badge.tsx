@@ -12,7 +12,7 @@ export type BadgeProps = {
 
 const VARIANT: Record<BadgeVariant, string> = {
   neutral: 'bg-fill text-text-secondary',
-  accent: 'bg-accent-tint text-accent',
+  accent: 'bg-accent-tint text-accent-on',
   warning: 'bg-warning-surface text-warning-on',
   success: 'bg-success-surface text-success-on',
   error: 'bg-error-surface text-error-on',

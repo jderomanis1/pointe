@@ -95,7 +95,7 @@ function ActiveSeat({ v, hasVoted, isMe }: { v: Voter; hasVoted: boolean; isMe: 
       data-voted={hasVoted ? 'true' : 'false'}
       className={cn(
         'inline-flex items-center gap-2 px-3 py-1.5 rounded-[2px] border',
-        hasVoted ? 'border-accent bg-accent-tint text-accent' : 'border-hairline bg-surface text-text-secondary',
+        hasVoted ? 'border-accent bg-accent-tint text-accent-on' : 'border-hairline bg-surface text-text-secondary',
       )}
     >
       <PresenceDot voted={hasVoted} />
@@ -111,7 +111,7 @@ function PresenceDot({ voted }: { voted: boolean }) {
     <span
       role="img"
       aria-label={voted ? 'voted' : 'not yet'}
-      className={cn('text-[10px] leading-none', voted ? 'text-accent' : 'text-text-muted')}
+      className={cn('text-[10px] leading-none', voted ? 'text-accent-on' : 'text-text-muted')}
     >
       {voted ? '●' : '○'}
     </span>
