@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { CardBack } from './CardBack';
 
-// Section 4.1 — five-phase reveal animation per voter card.
-// Phase 5 (ConsensusStamp) is deferred to Increment 8.
+// Section 4.1 — five-phase reveal animation per voter card. Phase 5 in Increment 8.
 type Phase = 'back' | 'flipping' | 'cycling' | 'face' | 'shaking' | 'done';
 
-const FACE = 'absolute inset-0 rounded-[2px] bg-surface border border-[var(--border-strong)] flex flex-col items-center justify-center gap-1';
+const FACE_CARD = 'absolute inset-0 rounded-[2px] bg-surface border border-[var(--border-strong)] flex flex-col items-center justify-center gap-1';
+// PILL dims match RevealedSeat (VoterSeats) for zero-CLS handoff at animation end.
+const PILL = 'inline-flex items-center gap-3 px-3 py-2 rounded-[2px] border bg-surface';
 
 export function RevealCard({
   voterId, value, deckValues, delay, voterName, isMe, outlier,
@@ -19,7 +20,7 @@ export function RevealCard({
   isMe: boolean;
   outlier: boolean;
 }) {
-  // Section 6.1: skip all phases, land on settled face immediately.
+  // Section 6.1: skip all motion, render settled face immediately.
   const reduced = useRef(
     typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   ).current;
@@ -39,14 +40,17 @@ export function RevealCard({
 
       await pause(100);
       if (dead) return;
-      setPhase('cycling');                           // Phase 2: front face rotates in −90°→0°
+      setPhase('cycling');                           // Phase 2: front face swings in −90°→0°
 
       const t0 = performance.now();
+      let lastSwap = t0;
       await new Promise<void>((res) => {
         function tick() {
-          if (dead || performance.now() - t0 >= 150) { res(); return; }
-          if (deckValues.length) {
+          const now = performance.now();
+          if (dead || now - t0 >= 150) { res(); return; }
+          if (now - lastSwap >= 25 && deckValues.length) {  // 25ms → ~6 ticks at any Hz
             setDisplay(deckValues[Math.floor(Math.random() * deckValues.length)]);
+            lastSwap = now;
           }
           requestAnimationFrame(tick);
         }
@@ -55,7 +59,7 @@ export function RevealCard({
       if (dead) return;
 
       setDisplay(value);
-      setPhase('face');                              // Phase 3: lock + switch to serif
+      setPhase('face');                              // Phase 3: lock value + switch to serif
 
       await pause(0);
       if (dead) return;
@@ -63,12 +67,32 @@ export function RevealCard({
 
       await pause(100);
       if (dead) return;
-      setPhase('done');
+      setPhase('done');                              // collapse to pill for zero-CLS handoff
     }
 
     run();
     return () => { dead = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Settled pill — matches RevealedSeat layout. h-1.5 spacer holds ConfidenceDots height.
+  if (phase === 'done') {
+    return (
+      <li
+        data-testid={`seat-${voterId}`}
+        data-revealed="true"
+        data-outlier={outlier ? 'true' : 'false'}
+        className={cn(PILL, outlier ? 'border-warning' : 'border-hairline')}
+      >
+        <span className="font-serif text-num text-text tabular-nums">{value}</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="font-mono text-meta text-text font-medium truncate max-w-[100px]">
+            {voterName}{isMe ? ' (you)' : ''}
+          </span>
+          <div className="h-1.5" aria-hidden="true" />
+        </div>
+      </li>
+    );
+  }
 
   const showFront = phase !== 'back' && phase !== 'flipping';
   const bY = phase === 'back' ? 0 : 90;
@@ -91,7 +115,7 @@ export function RevealCard({
         <CardBack className="w-full h-full" />
       </div>
       <div
-        className={cn(FACE, outlier && 'border-warning', phase === 'shaking' && 'anim-micro-shake')}
+        className={cn(FACE_CARD, outlier && 'border-warning', phase === 'shaking' && 'anim-micro-shake')}
         style={{ transform: `rotateY(${fY}deg)`, transition: fTrans, backfaceVisibility: 'hidden' }}
         aria-label={`${voterName}${isMe ? ' (you)' : ''} voted ${value}`}
       >

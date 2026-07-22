@@ -94,6 +94,12 @@ body::after {
    reveal sequence with the 5-phase RAF choreography)
    ============================================================ */
 
+/* Section 4.1 Phase 5 — Consensus Stamp Slam (scale 1.4 → 1.0 at fixed −3deg rotation) */
+@keyframes stamp-slam {
+  from { transform: rotate(-3deg) scale(1.4); }
+  to   { transform: rotate(-3deg) scale(1.0); }
+}
+
 /* Section 4.1 Phase 4 — Micro-Impact Shake (used post-reveal) */
 @keyframes micro-shake {
   0%   { transform: translate(0, 0); }
@@ -119,6 +125,9 @@ body::after {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .anim-stamp-slam {
+    animation: stamp-slam 80ms var(--ease-mechanical) 400ms both;
+  }
   .anim-micro-shake {
     animation: micro-shake 100ms var(--ease-snap) both;
   }
