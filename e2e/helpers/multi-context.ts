@@ -43,7 +43,7 @@ export async function createHostRoom(
   if (opts.mode === 'async') {
     await page.getByRole('radio', { name: /Async window/i }).click();
   }
-  await page.getByRole('button', { name: 'Create room' }).click();
+  await page.getByRole('button', { name: 'Create Session' }).click();
   await page.waitForURL(/\/[a-z]+-[a-z]+-\d+$/);
   const slug = new URL(page.url()).pathname.replace(/^\//, '');
   // Lobby is ready when the host's AddStory input has mounted — proves WS
@@ -91,12 +91,12 @@ export async function addStory(hostPage: Page, text: string): Promise<void> {
 
 /**
  * Host opens voting on the queue's first eligible story. Waits on the
- * VotingStage's "Reveal votes" button — only mounted once a story is
+ * VotingStage's "Execute Reveal" button — only mounted once a story is
  * `active` and the host can drive the round.
  */
 export async function openVotingFirstStory(hostPage: Page): Promise<void> {
   await hostPage.getByRole('button', { name: 'Open voting' }).first().click();
-  await expect(hostPage.getByRole('button', { name: 'Reveal votes' })).toBeVisible();
+  await expect(hostPage.getByRole('button', { name: 'Execute Reveal' })).toBeVisible();
 }
 
 /**

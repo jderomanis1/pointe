@@ -90,7 +90,7 @@ test.describe('AA vote-hiding (pre-reveal)', () => {
     // Host reveals. The reveal broadcast lands a `votes_revealed` change
     // with the full votes array → store moves the story to `revealed` and
     // VoterSeats flips to revealed mode (seats now show points).
-    await host.page.getByRole('button', { name: 'Reveal votes' }).click();
+    await host.page.getByRole('button', { name: 'Execute Reveal' }).click();
 
     // POSITIVE INVERSION in Bob's DOM: Alice's seat is now in revealed
     // mode (the seat element carries data-revealed="true") AND contains
@@ -148,7 +148,7 @@ test.describe('AA-1 AI invisibility', () => {
 
     // Host reveals. AI-still-host-only is the second half of AA-1: the
     // `votes_revealed` change carries `ai` for hosts, stripped for voters.
-    await host.page.getByRole('button', { name: 'Reveal votes' }).click();
+    await host.page.getByRole('button', { name: 'Execute Reveal' }).click();
     await expect(host.page.locator('section[aria-label="AI suggestion"]')).toBeVisible();
 
     // Wait for Alice's view to enter revealed mode (positive anchor on

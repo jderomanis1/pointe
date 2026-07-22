@@ -258,7 +258,7 @@ test.describe('S10.iii — async close-review walk', () => {
     // close → discuss-live's active state mounts the SYNC VotingStage,
     // not AsyncHostMonitorView).
     await expect(s.host.page.locator('[data-slot="review-host-screen"]')).toHaveCount(0);
-    await expect(s.host.page.getByRole('button', { name: 'Reveal votes' })).toBeVisible();
+    await expect(s.host.page.getByRole('button', { name: 'Execute Reveal' })).toBeVisible();
 
     // POSITIVE ANCHOR on voters: they drop into the sync active view (the
     // CastPanel's deck cards radio group). Not AsyncVoterView (whose
@@ -284,7 +284,7 @@ test.describe('S10.iii — async close-review walk', () => {
     await expect(seatByName(s.host.page, 'Charlie')).toHaveAttribute('data-voted', 'true');
 
     // Host reveals, then commits the agreed median.
-    await s.host.page.getByRole('button', { name: 'Reveal votes' }).click();
+    await s.host.page.getByRole('button', { name: 'Execute Reveal' }).click();
     await expect(s.host.page.locator('[data-slot="review-host-screen"]')).toHaveCount(0);
     // VotingStage is still mounted (revealed state); the CommitPanel
     // shows up with the "Commit" / suggested-estimate affordance.
