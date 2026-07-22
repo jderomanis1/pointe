@@ -119,6 +119,9 @@ body::after {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .anim-micro-shake {
+    animation: micro-shake 100ms var(--ease-snap) both;
+  }
   .anim-reveal-seat {
     animation: reveal-seat-rise var(--duration-normal) var(--ease-mechanical) both;
   }

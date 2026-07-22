@@ -15,6 +15,7 @@ import { HostAiSection } from './HostAiSection';
 import { StoryExternalRef } from './StoryExternalRef';
 import { TableDeck } from './TableDeck';
 import { ParticipantRoster } from './ParticipantRoster';
+import { RevealDeck } from './RevealDeck';
 
 /**
  * The active-story focus, branched by story.state:
@@ -112,7 +113,9 @@ export function VotingStage({ story }: { story: Story }) {
       </header>
 
       {isRevealed ? (
-        <VoterSeats activeStoryId={story.id} mode="revealed" animateReveal={animateReveal} />
+        animateReveal
+          ? <RevealDeck storyId={story.id} />
+          : <VoterSeats activeStoryId={story.id} mode="revealed" animateReveal={false} />
       ) : (
         <ParticipantRoster storyId={story.id} />
       )}
