@@ -17,7 +17,7 @@ const CARD_DEFAULT = cn(
   'active:translate-x-px active:translate-y-px active:shadow-none',
 );
 
-const CARD_SELECTED = 'bg-fill border-2 border-accent text-accent shadow-[var(--shadow-hard-md)] cursor-default';
+const CARD_SELECTED = 'bg-fill border-2 border-accent text-accent-text shadow-[var(--shadow-hard-md)] cursor-default';
 
 export function VoteCards({
   deck, selected, onSelect, disabled,

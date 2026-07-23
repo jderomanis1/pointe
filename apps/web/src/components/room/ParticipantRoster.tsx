@@ -13,7 +13,7 @@ function StatusCell({ connectionState, voted, role }: { connectionState: string;
   }
   if (role === 'spectator') return <span className="text-text-secondary">[OBS]</span>;
   return voted
-    ? <span className="text-accent">● READY</span>
+    ? <span className="text-accent-text">● READY</span>
     : <span className="text-text-muted">○ PENDING</span>;
 }
 

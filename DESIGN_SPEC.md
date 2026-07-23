@@ -1,12 +1,13 @@
 # DESIGN_SPEC.md — Pointe.team (Paper & Press)
 
-> **Design System & Component Specification v1.4 — CONSOLIDATED**
+> **Design System & Component Specification v1.5 — CONSOLIDATED**
 > **Supersedes:** DESIGN_SPEC v1.0 + ADDENDUM v1.1 (fully merged; do not reference prior documents)
 > **Target Audience:** AI Code Generation Agents (Claude Code)
 > **Aesthetic Archetype:** Paper & Press — Tactile Brutalist Editorial Print
 > **Changelog v1.2:** Merged addendum components; resolved all contradictions; bumped `--text-tertiary` for WCAG AA; added Section 6 (Accessibility & Reduced Motion — engineering quality gate); standardized consensus microcopy; replaced emoji glyphs.
 > **Changelog v1.3:** Section 3.9 correction — ConsensusStamp and Badge text on `--color-success-surface` must use `var(--color-success-on)`, not `var(--semantic-emerald)`. In light mode `--semantic-emerald` (`#059669`) on the emerald tint over `#F4F1EA` yields 2.98:1 (fails AA). `--color-success-on` is set to `#064E3B` in the light theme block (7.70:1) and inherits `#10B981` in dark (5.44:1). The accent emerald token is for borders only; the on-surface text token is theme-specific.
-> **Changelog v1.4:** Systematic contrast audit — Section A added (Contrast-Verified Token Pairings). New token `--color-accent-on` (text on all `bg-accent-tint` surfaces). `--color-warning-on` / `--color-error-on` now have explicit values in both theme blocks (previous dark-only values cascaded incorrectly in light mode). Dark `--text-tertiary` bumped `#8A8A8A` → `#929292` (was 4.27:1 on surface-raised; now 4.86:1). Root cause: same-family color on its own tinted surface cannot self-contrast — all accent text now uses dedicated `-on` tokens per theme. Solid CTA button (`accent-ink` on `accent` fill, 3.44:1 dark) remains a known exception pending design decision (see Section A).
+> **Changelog v1.4:** Systematic contrast audit — Section A added (Contrast-Verified Token Pairings). New token `--color-accent-on` (text on all `bg-accent-tint` surfaces). `--color-warning-on` / `--color-error-on` now have explicit values in both theme blocks (previous dark-only values cascaded incorrectly in light mode). Dark `--text-tertiary` bumped `#8A8A8A` → `#929292` (was 4.27:1 on surface-raised; now 4.86:1). Root cause: same-family color on its own tinted surface cannot self-contrast — all accent text now uses dedicated `-on` tokens per theme. Solid CTA button (`accent-ink` on `accent` fill, 3.44:1 dark) subsequently fixed: `--color-accent-ink` → `#121212` dk / `#FFFFFF` lt; hover bumped `#E03E00` → `#F04000` (was 4.33:1 with dark ink; now 4.85:1).
+> **Changelog v1.5:** `text-accent` on solid surfaces — method gap in Section A initial audit. New token `--color-accent-text` for all readable text uses of the accent color on non-tinted surfaces: dark `#FF5800` (5.28:1 surface-base / 4.67:1 surface-raised), light `#B02F00` (5.73:1 surface-base / 5.19:1 canvas / 6.45:1 fill). 7 sites updated (ReviewHostScreen, AsyncVoterView, AsyncHostMonitorView, VoteCards, ParticipantRoster, RoomPage, NotFound). Method-gap rule added to Section A: any token used for borders/fills must be separately audited when it also carries readable text.
 
 ---
 
@@ -472,11 +473,14 @@ Minimum WCAG AA: 4.5:1 normal text. Computed with sRGB linearization (WCAG 2.1 f
 | `error-on` on `error-surface`<br>`#F87171` (dk) · `#991B1B` (lt) | 5.55:1 ✓ | 5.07:1 ✓ | 6.27:1 ✓ | 5.71:1 ✓ |
 | `success-on` on `success-surface` _(v1.3 ref)_<br>`#10B981` (dk) · `#064E3B` (lt) | 5.44:1 ✓ | 4.92:1 ✓ | 7.70:1 ✓ | 7.02:1 ✓ |
 | `accent-ink` on `accent` — solid CTA button<br>dk `#121212` / lt `#FFFFFF` on accent fill | 5.44:1 ✓ | 4.85:1 ✓ _(hover)_ | 4.94:1 ✓ | 6.46:1 ✓ _(hover)_ |
+| `accent-text` on solid surfaces<br>`#FF5800` (dk) · `#B02F00` (lt) | 5.28:1 ✓ | 4.67:1 ✓ | 5.73:1 ✓ | 5.19:1 ✓ |
 
 Note: for the CTA row, "surface-raised" = hover/active fill state, not a page surface. Dark hover bumped `#E03E00` → `#F04000` (was 4.33:1 with dark ink; now 4.85:1). Light uses white ink throughout.
 
-**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. CTA button `text-white` on `#FF4500` dark was 3.44:1. All fixed in v1.4.
+**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. CTA button `text-white` on `#FF4500` dark was 3.44:1. All fixed in v1.4. `text-accent` on solid surfaces (`#D03800` on `#F4F1EA` = 4.37:1 in light) fixed in v1.5 via `--color-accent-text`.
 
-**All pairs pass WCAG AA 4.5:1 as of v1.4.** No remaining exceptions.
+**Audit Rule (method gap — v1.5):** Any token that colors borders, fills, or decorative marks (`--color-accent`, `--color-success`, etc.) must be separately contrast-audited for every solid surface where it also carries readable text. The v1.4 audit enumerated only *on-tint pairs* (semi-transparent fill over a solid base) and missed `text-accent` as readable text on un-tinted solid surfaces. Pattern: introduce a named readable-text token (e.g. `--color-accent-text`) rather than reusing the border/fill token as text color.
+
+**All pairs pass WCAG AA 4.5:1 as of v1.5.** No remaining exceptions.
 
 **Maintenance rule:** When adding a new semantic color family, include a dedicated `-on` token for text on its tinted surface, set explicitly in both theme blocks, verified in both themes (all four surface columns). For solid fill elements (like CTA buttons), use `text-accent-ink` not `text-white` — the token is theme-specific (`#121212` dark / `#FFFFFF` light). Add a new row to this table before shipping.

@@ -153,6 +153,7 @@
   --color-accent-active: var(--accent-vermilion-hover);
   --color-accent-tint:   var(--accent-vermilion-subtle);
   --color-accent-on:     #FF7000;              /* Text on accent-tint (5.30:1/4.73:1 dk) */
+  --color-accent-text:   #FF5800;              /* Readable text on solid surfaces (5.28:1 surface-base / 4.67:1 surface-raised dk) */
 
   /* Gold → amber (nearest equivalent; used only by non-reskin features) */
   --color-gold: var(--semantic-amber);
@@ -224,6 +225,7 @@
   --accent-vermilion:        #D03800;
   --accent-vermilion-hover:  #B02F00;
   --color-accent-ink:        #FFFFFF;              /* White ink on light-mode vermilion (4.94:1/6.46:1 hover) */
+  --color-accent-text:       #B02F00;              /* Readable text on solid surfaces (5.73:1 surface-base / 5.19:1 canvas lt) */
   --accent-vermilion-subtle: rgba(208, 56, 0, 0.08);
 
   --semantic-emerald:    #059669;

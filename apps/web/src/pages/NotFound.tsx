@@ -10,7 +10,7 @@ export function NotFound() {
           {' '}<span className="font-mono text-text">apt-sparrow-16</span>.
         </p>
         <p className="mt-6">
-          <Link to="/" className="text-accent font-medium">Create a room →</Link>
+          <Link to="/" className="text-accent-text font-medium">Create a room →</Link>
         </p>
       </div>
     </main>

@@ -143,7 +143,7 @@ function RoomNotFound({ slug }: { slug: string }) {
         <Slug slug={slug} /> doesn&apos;t match any open room.
       </p>
       <p className="mt-6">
-        <Link to="/" className="text-accent font-medium">Create one →</Link>
+        <Link to="/" className="text-accent-text font-medium">Create one →</Link>
       </p>
     </PageShell>
   );
