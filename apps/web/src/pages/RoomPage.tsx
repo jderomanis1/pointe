@@ -109,7 +109,7 @@ function AsyncJoinFraming({ closesAt }: { closesAt: number | null }) {
       className="mt-6 rounded-md bg-accent-tint border border-accent px-4 py-3 flex flex-col gap-1"
       aria-label="Async voting"
     >
-      <p className="text-meta font-medium text-accent">
+      <p className="text-meta font-medium text-accent-on">
         Async voting{closesAt !== null ? ' — vote at your pace' : ''}
       </p>
       {countdownStr ? (
@@ -143,7 +143,7 @@ function RoomNotFound({ slug }: { slug: string }) {
         <Slug slug={slug} /> doesn&apos;t match any open room.
       </p>
       <p className="mt-6">
-        <Link to="/" className="text-accent font-medium">Create one →</Link>
+        <Link to="/" className="text-accent-text font-medium">Create one →</Link>
       </p>
     </PageShell>
   );

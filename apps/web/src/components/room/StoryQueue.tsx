@@ -98,7 +98,7 @@ export function StoryQueue() {
   const [splittingId, setSplittingId] = useState<string | null>(null);
 
   return (
-    <section className="bg-surface border border-hairline rounded-md">
+    <section className="bg-surface border border-hairline rounded-[2px]">
       <header className="px-4 py-3 border-b border-hairline">
         <h2 className="text-meta text-text-secondary">Stories · {stories.length}</h2>
       </header>

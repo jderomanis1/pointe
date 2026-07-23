@@ -92,8 +92,8 @@ describe('S8.iv.c3 — voter at reveal, pre-share: no AI panel anywhere (AA-1)',
     seed(revealedSnapshot({ meVoterId: VOTER_ID })); // no hostAi → voter has no ai
     renderShell();
 
-    // Team result block IS present.
-    expect(screen.getByLabelText(/Median 5/i)).toBeInTheDocument();
+    // Team result block IS present (Option A: median in session tally stats bar).
+    expect(screen.getByRole('region', { name: 'Session tally' })).toBeInTheDocument();
     // The AI panel and its parts are absent.
     expect(screen.queryByLabelText('AI suggestion')).not.toBeInTheDocument();
     expect(screen.queryByText('Suggested range')).not.toBeInTheDocument();
@@ -111,11 +111,12 @@ describe('S8.iv.c3 — host at reveal: panel + armed share button below the team
     seed(revealedSnapshot({ meVoterId: HOST_ID, hostAi: READY }));
     renderShell();
 
-    const median = screen.getByLabelText(/Median 5/i);
+    // Option A: median in session tally stats bar; use tally region as positional anchor.
+    const tally = screen.getByRole('region', { name: 'Session tally' });
     const panel = screen.getByLabelText('AI suggestion');
     expect(panel).toBeInTheDocument();
-    // DOM order: the team-result median appears before the AI panel.
-    const cmp = median.compareDocumentPosition(panel);
+    // DOM order: the team-result tally appears before the AI panel.
+    const cmp = tally.compareDocumentPosition(panel);
     // Node.DOCUMENT_POSITION_FOLLOWING = 4 — panel follows median.
     expect(cmp & 4).toBe(4);
     // The armed share button is in the panel.

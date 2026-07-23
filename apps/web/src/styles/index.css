@@ -1,9 +1,12 @@
 @import './tokens.css';
 @import 'tailwindcss';
 
-/* Bridge: expose our semantic tokens as Tailwind utilities.
- * `@theme inline` references the CSS vars at use-site, so dark-theme overrides
- * on [data-theme="dark"] flow through utilities like bg-bg, text-text, etc.
+/* Bridge: expose semantic tokens as Tailwind utilities.
+ * `@theme inline` references the CSS vars at use-site, so [data-theme] overrides
+ * flow through utilities like bg-bg, text-text, border-hairline, etc.
+ *
+ * Legacy names (--color-bg, --color-accent, …) are aliased in tokens.css so
+ * components not yet reskinned continue working until their increment lands.
  */
 @theme inline {
   --color-bg: var(--color-bg);
@@ -23,6 +26,8 @@
   --color-accent-hover: var(--color-accent-hover);
   --color-accent-active: var(--color-accent-active);
   --color-accent-tint: var(--color-accent-tint);
+  --color-accent-on: var(--color-accent-on);
+  --color-accent-text: var(--color-accent-text);
 
   --color-gold: var(--color-gold);
 
@@ -73,30 +78,90 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Reveal animation B — applied only on the live active→revealed edge.
- * Reduced-motion: the keyframes don't bind, elements just appear.
- */
+/* Newsprint grain overlay — fixed pseudo-element so it tiles over all content
+ * without affecting scroll or interaction. Opacity baked into the SVG (0.035). */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: var(--bg-grain-uri);
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ============================================================
+   ANIMATION KEYFRAMES (Spec stubs — Increment 7 replaces the
+   reveal sequence with the 5-phase RAF choreography)
+   ============================================================ */
+
+/* Section 4.3 — Roster Join: height stamp (0→40px, 80ms) + slide (-8px→0, 50ms, 80ms delay) */
+@keyframes roster-join-height {
+  from { max-height: 0; overflow: hidden; }
+  to   { max-height: 40px; overflow: hidden; }
+}
+@keyframes roster-join-slide {
+  from { transform: translateX(-8px); }
+  to   { transform: translateX(0); }
+}
+
+/* Section 4.1 Phase 5 — Consensus Stamp Slam (scale 1.4 → 1.0 at fixed −3deg rotation) */
+@keyframes stamp-slam {
+  from { transform: rotate(-3deg) scale(1.4); }
+  to   { transform: rotate(-3deg) scale(1.0); }
+}
+
+/* Section 4.1 Phase 4 — Micro-Impact Shake (used post-reveal) */
+@keyframes micro-shake {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(-1px, 1px); }
+  50%  { transform: translate(1px, -1px); }
+  75%  { transform: translate(-1px, 0); }
+  100% { transform: translate(0, 0); }
+}
+
+/* Legacy reveal stubs — retained until Increment 7 replaces them.
+ * Easing updated to --ease-mechanical; opacity-fade matches interim look. */
 @keyframes reveal-seat-rise {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes reveal-median-pop {
-  from { opacity: 0; transform: scale(0.92); }
+  from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
 }
 @keyframes reveal-flag-fade {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
 @media (prefers-reduced-motion: no-preference) {
+  .anim-roster-join {
+    animation:
+      roster-join-height 80ms linear both,
+      roster-join-slide  50ms var(--ease-mechanical) 80ms both;
+  }
+  .anim-stamp-slam {
+    animation: stamp-slam 80ms var(--ease-mechanical) 400ms both;
+  }
+  .anim-micro-shake {
+    animation: micro-shake 100ms var(--ease-snap) both;
+  }
   .anim-reveal-seat {
-    animation: reveal-seat-rise 230ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    animation: reveal-seat-rise var(--duration-normal) var(--ease-mechanical) both;
   }
   .anim-reveal-median {
-    animation: reveal-median-pop 250ms cubic-bezier(0.4, 0, 0.2, 1) 150ms both;
+    animation: reveal-median-pop var(--duration-normal) var(--ease-mechanical) 100ms both;
     transform-origin: left center;
   }
   .anim-reveal-flag {
-    animation: reveal-flag-fade 220ms cubic-bezier(0.4, 0, 0.2, 1) 300ms both;
+    animation: reveal-flag-fade var(--duration-normal) var(--ease-mechanical) 200ms both;
   }
+}
+
+/* Section 6.1 — kill all animation/transition durations for vestibular safety.
+ * The count-up random cycle (Increment 7) MUST check this before starting. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

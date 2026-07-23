@@ -1,10 +1,13 @@
 # DESIGN_SPEC.md — Pointe.team (Paper & Press)
 
-> **Design System & Component Specification v1.2 — CONSOLIDATED**
+> **Design System & Component Specification v1.5 — CONSOLIDATED**
 > **Supersedes:** DESIGN_SPEC v1.0 + ADDENDUM v1.1 (fully merged; do not reference prior documents)
 > **Target Audience:** AI Code Generation Agents (Claude Code)
 > **Aesthetic Archetype:** Paper & Press — Tactile Brutalist Editorial Print
 > **Changelog v1.2:** Merged addendum components; resolved all contradictions; bumped `--text-tertiary` for WCAG AA; added Section 6 (Accessibility & Reduced Motion — engineering quality gate); standardized consensus microcopy; replaced emoji glyphs.
+> **Changelog v1.3:** Section 3.9 correction — ConsensusStamp and Badge text on `--color-success-surface` must use `var(--color-success-on)`, not `var(--semantic-emerald)`. In light mode `--semantic-emerald` (`#059669`) on the emerald tint over `#F4F1EA` yields 2.98:1 (fails AA). `--color-success-on` is set to `#064E3B` in the light theme block (7.70:1) and inherits `#10B981` in dark (5.44:1). The accent emerald token is for borders only; the on-surface text token is theme-specific.
+> **Changelog v1.4:** Systematic contrast audit — Section A added (Contrast-Verified Token Pairings). New token `--color-accent-on` (text on all `bg-accent-tint` surfaces). `--color-warning-on` / `--color-error-on` now have explicit values in both theme blocks (previous dark-only values cascaded incorrectly in light mode). Dark `--text-tertiary` bumped `#8A8A8A` → `#929292` (was 4.27:1 on surface-raised; now 4.86:1). Root cause: same-family color on its own tinted surface cannot self-contrast — all accent text now uses dedicated `-on` tokens per theme. Solid CTA button (`accent-ink` on `accent` fill, 3.44:1 dark) subsequently fixed: `--color-accent-ink` → `#121212` dk / `#FFFFFF` lt; hover bumped `#E03E00` → `#F04000` (was 4.33:1 with dark ink; now 4.85:1).
+> **Changelog v1.5:** `text-accent` on solid surfaces — method gap in Section A initial audit. New token `--color-accent-text` for all readable text uses of the accent color on non-tinted surfaces: dark `#FF5800` (5.28:1 surface-base / 4.67:1 surface-raised), light `#B02F00` (5.73:1 surface-base / 5.19:1 canvas / 6.45:1 fill). 7 sites updated (ReviewHostScreen, AsyncVoterView, AsyncHostMonitorView, VoteCards, ParticipantRoster, RoomPage, NotFound). Method-gap rule added to Section A: any token used for borders/fills must be separately audited when it also carries readable text.
 
 ---
 
@@ -47,7 +50,7 @@ A refined, brutalist editorial print publication designed for craft-obsessed sof
   /* Typography & Ink */
   --text-primary: #ECEFF4;         /* Crisp Off-White Newsprint Text */
   --text-secondary: #A1A1AA;       /* Muted Editorial Caption Gray */
-  --text-tertiary: #8A8A8A;        /* Subdued Index / Rule Color (v1.2: bumped from #666666 for WCAG AA ~4.8:1 on --surface-base) */
+  --text-tertiary: #929292;        /* Subdued Index / Rule Color (v1.4: bumped from #8A8A8A — was 4.27:1 on surface-raised, fails AA; now 4.86:1) */
   --text-inverse: #121212;         /* Dark Ink Text for Light Backgrounds */
 
   /* Brand Primary & Accents */
@@ -306,7 +309,8 @@ AVERAGE: 5.6 PTS   |   CONSENSUS: NONE   |   TOTAL VOTES: 8
 Triggered on reveal when all non-observer participants share the exact same value.
 
 * **Text (canonical, use everywhere):** `★ UNANIMOUS CONSENSUS: [X] PTS`
-* `border: 3px solid var(--semantic-emerald)`; `color: var(--semantic-emerald)`; `background: var(--semantic-emerald-bg)`
+* `border: 3px solid var(--semantic-emerald)`; `color: var(--color-success-on)`; `background: var(--semantic-emerald-bg)`
+* **v1.3 note:** Use `var(--color-success-on)` (not `var(--semantic-emerald)`) for stamp text — the accent token fails WCAG AA in light mode. `--color-success-on` is theme-specific: `#064E3B` (light, 7.70:1) / `#10B981` (dark, 5.44:1).
 * `font-family: var(--font-mono)`; `font-weight: 800`; `text-transform: uppercase`
 * **Rotation (canonical): `rotate(-3deg)`** — this value everywhere; `-12deg` references are void
 * `box-shadow: var(--shadow-stamp)`; `padding: 16px 32px`
@@ -372,8 +376,12 @@ When the host clicks Reveal, the sequence progresses strictly:
 
 ### 4.4 Roster Leave / Disconnect: "Redaction Fade"
 
-1. Status switches instantly to `[× OFFLINE]`; text color → `var(--text-tertiary)`.
-2. After `500ms` buffer, row collapses `40px → 0px` instantly — zero smooth transition.
+**State model note (confirmed 2025-07-22):** `ConnectionState = 'connected' | 'reconnecting' | 'left'`. `'reconnecting'` is a network drop (temporary); `'left'` is an explicit leave (permanent). These must be treated differently:
+
+* **`reconnecting` (network drop):** Status switches instantly to `[× OFFLINE]`; text color → `var(--text-tertiary)`; row opacity → `0.45`. Row persists — no collapse. TableDeck slot persists at `0.45` opacity; if voter already played a card, the face-down tile stays full-hatch (vote still reveals).
+* **`left` (explicit leave):** The 500ms Redaction Fade applies: status → `[× OFFLINE]`, then after `500ms` buffer, row collapses `40px → 0px` instantly. TableDeck slot is removed on `left`. Increment 6 must follow this same rule.
+
+> The 500ms row collapse applies to explicit leaves (`'left'`) only. Reconnecting voters persist as `[× OFFLINE]` until they reconnect or explicitly leave.
 
 ---
 
@@ -414,9 +422,12 @@ Implementation note: the count-up random cycle (25ms flashing values) MUST be fu
 
 ### 6.2 Contrast Compliance
 
-* `--text-tertiary` values are set to pass WCAG AA (≥4.5:1) against `--surface-base` in both themes (see v1.2 token changes). Do not revert to `#666666` / `#88837A`.
+* `--text-tertiary` is set to pass WCAG AA (≥4.5:1) on all surfaces in both themes (v1.4 dark: `#929292`, 5.36:1 / surface-base, 4.86:1 / surface-raised). Do not revert to `#8A8A8A` or `#666666`.
 * `--text-tertiary` never below 12px.
 * Verify vermilion-on-canvas combinations remain ≥4.5:1 when used for text (dark mode `#FF4500` on `#121212` ≈ 4.9:1 — passes; do not use vermilion text on `--surface-raised`).
+* **On-tint text rule (v1.4):** Semantic accent colors (`--color-accent`, `--color-success`, `--color-warning`, `--color-error`) are for borders and fills only. Text placed on tinted surfaces (`bg-accent-tint`, `bg-success-surface`, `bg-warning-surface`, `bg-error-surface`) MUST use the dedicated `-on` token (`text-accent-on`, `text-success-on`, `text-warning-on`, `text-error-on`). Using the base accent token on its own tint fails AA — e.g., `text-accent` on `bg-accent-tint` yields 4.27:1 dark / 3.91:1 light.
+* Every `-on` token is explicitly set in BOTH theme blocks in `tokens.css`. Do not rely on cascade for on-tokens.
+* See Section A for the full verified pairing table.
 
 ### 6.3 Screen Reader Choreography
 
@@ -447,3 +458,29 @@ Implementation note: the count-up random cycle (25ms flashing values) MUST be fu
 8. [ ] **Focus-visible:** every interactive element per its component spec.
 9. [ ] **SR announcements:** Section 6.3 verified with VoiceOver or NVDA pass.
 10. [ ] **No emoji in UI:** text glyphs only.
+
+---
+
+## Section A — Contrast-Verified Token Pairings
+
+Minimum WCAG AA: 4.5:1 normal text. Computed with sRGB linearization (WCAG 2.1 formula). Tint surfaces are alpha-blended over the named base. Values rounded to 2 dp.
+
+| Foreground / Background | Dark · surface-base | Dark · surface-raised | Light · surface-base | Light · bg-canvas |
+|-------------------------|--------------------|-----------------------|---------------------|-------------------|
+| `text-tertiary` on solid surface<br>`#929292` (dk) · `#5E5A54` (lt) | 5.36:1 ✓ | 4.86:1 ✓ | 6.07:1 ✓ | 6.85:1 ✓ |
+| `accent-on` on `accent-tint`<br>`#FF7000` (dk) · `#B02F00` (lt) | 5.30:1 ✓ | 4.82:1 ✓ | 5.10:1 ✓ | 4.65:1 ✓ |
+| `warning-on` on `warning-surface`<br>`#F59E0B` (dk) · `#92400E` (lt) | 6.61:1 ✓ | 5.99:1 ✓ | 5.52:1 ✓ | 5.03:1 ✓ |
+| `error-on` on `error-surface`<br>`#F87171` (dk) · `#991B1B` (lt) | 5.55:1 ✓ | 5.07:1 ✓ | 6.27:1 ✓ | 5.71:1 ✓ |
+| `success-on` on `success-surface` _(v1.3 ref)_<br>`#10B981` (dk) · `#064E3B` (lt) | 5.44:1 ✓ | 4.92:1 ✓ | 7.70:1 ✓ | 7.02:1 ✓ |
+| `accent-ink` on `accent` — solid CTA button<br>dk `#121212` / lt `#FFFFFF` on accent fill | 5.44:1 ✓ | 4.85:1 ✓ _(hover)_ | 4.94:1 ✓ | 6.46:1 ✓ _(hover)_ |
+| `accent-text` on solid surfaces<br>`#FF5800` (dk) · `#B02F00` (lt) | 5.28:1 ✓ | 4.67:1 ✓ | 5.73:1 ✓ | 5.19:1 ✓ |
+
+Note: for the CTA row, "surface-raised" = hover/active fill state, not a page surface. Dark hover bumped `#E03E00` → `#F04000` (was 4.33:1 with dark ink; now 4.85:1). Light uses white ink throughout.
+
+**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. CTA button `text-white` on `#FF4500` dark was 3.44:1. All fixed in v1.4. `text-accent` on solid surfaces (`#D03800` on `#F4F1EA` = 4.37:1 in light) fixed in v1.5 via `--color-accent-text`.
+
+**Audit Rule (method gap — v1.5):** Any token that colors borders, fills, or decorative marks (`--color-accent`, `--color-success`, etc.) must be separately contrast-audited for every solid surface where it also carries readable text. The v1.4 audit enumerated only *on-tint pairs* (semi-transparent fill over a solid base) and missed `text-accent` as readable text on un-tinted solid surfaces. Pattern: introduce a named readable-text token (e.g. `--color-accent-text`) rather than reusing the border/fill token as text color.
+
+**All pairs pass WCAG AA 4.5:1 as of v1.5.** No remaining exceptions.
+
+**Maintenance rule:** When adding a new semantic color family, include a dedicated `-on` token for text on its tinted surface, set explicitly in both theme blocks, verified in both themes (all four surface columns). For solid fill elements (like CTA buttons), use `text-accent-ink` not `text-white` — the token is theme-specific (`#121212` dark / `#FFFFFF` light). Add a new row to this table before shipping.

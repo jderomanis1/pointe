@@ -247,7 +247,7 @@ test.describe('S10 a11y-keyboard — locked', () => {
     await castVote(alice.page, '5');
 
     // Pre-reveal: Reveal button is reachable + activates.
-    await host.page.getByRole('button', { name: 'Reveal votes' }).focus();
+    await host.page.getByRole('button', { name: 'Execute Reveal' }).focus();
     await host.page.keyboard.press('Enter');
     await expect(host.page.getByRole('button', { name: 'Commit estimate' })).toBeVisible();
 

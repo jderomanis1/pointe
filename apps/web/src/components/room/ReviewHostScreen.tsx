@@ -277,7 +277,7 @@ function DiscussCard({
           rightIcon={<MessageSquare size={14} aria-hidden="true" />}
           data-slot="discuss-live"
         >
-          <span className="text-accent">Discuss live →</span>
+          <span className="text-accent-text">Discuss live →</span>
         </Button>
       </footer>
     </article>

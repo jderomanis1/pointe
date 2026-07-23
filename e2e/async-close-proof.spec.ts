@@ -33,7 +33,7 @@ test('host async-window → force-close hook → review screen renders', async (
   await page.goto('/');
   await page.getByLabel('Your name').fill('Alice');
   await page.getByRole('radio', { name: /Async window/i }).click();
-  await page.getByRole('button', { name: 'Create room' }).click();
+  await page.getByRole('button', { name: 'Create Session' }).click();
 
   // 2. Wait for the room URL + the post-join lobby. The slug is in the
   // header (`<span class="font-mono text-subhead">{slug}</span>`); read

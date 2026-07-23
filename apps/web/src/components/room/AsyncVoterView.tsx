@@ -239,7 +239,7 @@ function StoryStage({
         <div className="flex items-center gap-3 flex-wrap">
           {committed ? (
             <span
-              className="inline-flex items-center gap-1 text-meta text-accent"
+              className="inline-flex items-center gap-1 text-meta text-accent-text"
               data-slot="vote-cast-marker"
             >
               <Check size={14} aria-hidden="true" />
@@ -336,7 +336,7 @@ function PrimaryCommit({
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         canSubmit
           ? 'bg-accent text-accent-ink hover:bg-accent-hover active:bg-accent-active'
-          : 'bg-transparent text-accent border border-accent hover:bg-accent-tint',
+          : 'bg-transparent text-accent-text border border-accent hover:bg-accent-tint hover:text-accent-on',
       )}
     >
       {label}

@@ -33,7 +33,7 @@ export function LongText({
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="text-meta text-text-secondary hover:text-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-sm"
+        className="text-meta text-text-secondary hover:text-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[2px]"
       >
         {expanded ? collapseLabel : expandLabel}
       </button>

@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
+import reactHooksPlugin from 'eslint-plugin-react-hooks';
 
 const baseGlobals = {
   console: 'readonly',
@@ -50,6 +51,7 @@ const browserGlobals = {
   HTMLElement: 'readonly',
   HTMLInputElement: 'readonly',
   HTMLButtonElement: 'readonly',
+  HTMLDivElement: 'readonly',
   Element: 'readonly',
   Event: 'readonly',
   CustomEvent: 'readonly',
@@ -60,6 +62,7 @@ const browserGlobals = {
   clearInterval: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',
+  performance: 'readonly',
 };
 
 export default [
@@ -108,6 +111,13 @@ export default [
   },
   {
     files: ['apps/web/**/*.{ts,tsx}'],
+    plugins: {
+      'react-hooks': reactHooksPlugin,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
     languageOptions: {
       globals: browserGlobals,
     },

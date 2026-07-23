@@ -3,6 +3,7 @@ import { Link2 } from 'lucide-react';
 import type { DeckType } from '@pointe/shared';
 import { Button } from '../Button';
 import { Badge } from '../Badge';
+import { PointeToast } from './PointeToast';
 
 const DECKS: Record<Exclude<DeckType, 'custom'>, string[]> = {
   fibonacci: ['1', '2', '3', '5', '8', '13', '21'],
@@ -27,24 +28,28 @@ function deckLabel(deck: DeckType): string {
 }
 
 export function ShareLink({ slug }: { slug: string }) {
-  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState(false);
   const url = typeof window !== 'undefined' ? `${window.location.origin}/${slug}` : `/${slug}`;
   async function copy() {
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      setToast(true);
     } catch {
       // Clipboard denied — leave the URL visible so the host can copy manually.
     }
   }
   return (
-    <div className="flex items-center gap-3">
-      <Button variant="secondary" size="md" onClick={copy} leftIcon={<Link2 size={16} />}>
-        {copied ? 'Copied' : 'Copy room link'}
-      </Button>
-      <code className="font-mono text-meta text-text-secondary truncate">{url}</code>
-    </div>
+    <>
+      <div className="flex items-center gap-3">
+        <Button variant="secondary" size="md" onClick={copy} leftIcon={<Link2 size={16} />}>
+          Copy Invite Link
+        </Button>
+        <code className="font-mono text-meta text-text-secondary truncate">{url}</code>
+      </div>
+      {toast && (
+        <PointeToast message="URL COPIED TO CLIPBOARD" onDismiss={() => setToast(false)} />
+      )}
+    </>
   );
 }
 
@@ -60,7 +65,7 @@ export function EmptyState({
 }) {
   if (!isHost) {
     return (
-      <section className="bg-surface border border-hairline rounded-md p-8 md:p-12">
+      <section className="bg-surface border border-hairline rounded-[2px] p-8 md:p-12">
         <h2 className="font-serif text-heading text-text">Waiting for the host</h2>
         <p className="text-text-secondary text-body mt-2">
           The host hasn&apos;t added any stories yet. As soon as they do, they&apos;ll appear here.
@@ -72,7 +77,7 @@ export function EmptyState({
   const values = deckValues(deck, customDeck);
 
   return (
-    <section className="bg-surface border border-hairline rounded-md p-8 md:p-12">
+    <section className="bg-surface border border-hairline rounded-[2px] p-8 md:p-12">
       <h2 className="font-serif text-display text-text">Your room is ready.</h2>
       <p className="text-text-secondary text-body mt-3 max-w-prose">
         Two things to do next — add a story to estimate, and share the link so your team can join.
@@ -96,7 +101,7 @@ export function EmptyState({
           <div className="flex items-center flex-wrap gap-2">
             <Badge variant="neutral">{deckLabel(deck)}</Badge>
             {values.map((v) => (
-              <span key={v} className="font-mono text-meta text-text-secondary px-2 py-0.5 rounded-sm bg-fill">{v}</span>
+              <span key={v} className="font-mono text-meta text-text-secondary px-2 py-0.5 rounded-[2px] bg-fill">{v}</span>
             ))}
           </div>
         </div>

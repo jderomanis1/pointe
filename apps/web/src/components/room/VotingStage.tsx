@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Story } from '@pointe/shared';
+import { resolveDeck } from '@pointe/shared';
 import { useRoomStore } from '../../store/roomStore';
 import { Badge } from '../Badge';
 import { Button } from '../Button';
@@ -13,6 +14,12 @@ import { useSend } from './RoomClientContext';
 import { AiSuggestionPanel } from './AiSuggestionPanel';
 import { HostAiSection } from './HostAiSection';
 import { StoryExternalRef } from './StoryExternalRef';
+import { TableDeck } from './TableDeck';
+import { ParticipantRoster } from './ParticipantRoster';
+import { RevealDeck } from './RevealDeck';
+import { ConsensusStamp } from './ConsensusStamp';
+import { VarianceBanner } from './VarianceBanner';
+import { SessionResultsPanel } from './SessionResultsPanel';
 
 /**
  * The active-story focus, branched by story.state:
@@ -34,26 +41,51 @@ export function VotingStage({ story }: { story: Story }) {
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
 
+  const reveal = useRoomStore((s) => s.revealed[story.id]);
+
   // --- reveal-edge detection (animation B fires once on the live transition) ---
   const prevState = useRef<Story['state']>(story.state);
   const [animateReveal, setAnimateReveal] = useState(false);
+  // Section 6.3 — SR announce region text; cleared after 2s.
+  const [srAnnounce, setSrAnnounce] = useState('');
   // --- split form toggle (host-only; can be opened in active or revealed) ---
   const [splitOpen, setSplitOpen] = useState(false);
   useEffect(() => {
     if (prevState.current === 'active' && story.state === 'revealed') {
       setAnimateReveal(true);
-      // Allow ~1s for the staggered animation to play out; then idle.
-      const t = setTimeout(() => setAnimateReveal(false), 1000);
+      const t1 = setTimeout(() => setAnimateReveal(false), 1000);
+      // Section 6.3: announce after Phase 3 (~300ms into the reveal).
+      const t2 = setTimeout(() => {
+        const votes = reveal?.votes ?? [];
+        const numVals = votes.map((v) => parseFloat(v.points)).filter((n) => !isNaN(n) && isFinite(n));
+        const avg = numVals.length > 0
+          ? (numVals.reduce((a, b) => a + b, 0) / numVals.length).toFixed(1)
+          : null;
+        const allSame = votes.length > 0 && votes.every((v) => v.points === votes[0].points);
+        const deck = room ? resolveDeck(room.deck, room.customDeck) : [];
+        const positions = votes.map((v) => deck.indexOf(v.points)).filter((i) => i !== -1);
+        const spread = positions.length >= 2
+          ? Math.max(...positions) - Math.min(...positions) >= 2 : false;
+        let text = 'Votes revealed.';
+        if (avg !== null) text += ` Average ${avg}.`;
+        if (allSame && votes.length > 0) text += ` Consensus reached at ${votes[0].points} points.`;
+        else if (spread) {
+          const lo = deck[Math.min(...positions)], hi = deck[Math.max(...positions)];
+          text += ` Vote spread high, ${lo} to ${hi}.`;
+        }
+        setSrAnnounce(text);
+      }, 300);
+      const t3 = setTimeout(() => setSrAnnounce(''), 2000);
       prevState.current = story.state;
-      return () => clearTimeout(t);
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     }
     prevState.current = story.state;
-  }, [story.state]);
+  }, [story.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRevealed = story.state === 'revealed' || story.state === 'committed';
 
   return (
-    <section className="bg-surface border border-hairline rounded-md p-6 md:p-8 flex flex-col gap-6">
+    <section className="bg-surface border border-hairline rounded-[2px] p-6 md:p-8 flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-3 flex-wrap">
           <Badge variant={isRevealed ? 'success' : 'accent'}>
@@ -83,7 +115,7 @@ export function VotingStage({ story }: { story: Story }) {
                 size="sm"
                 onClick={() => send('REVEAL_VOTES', { storyId: story.id })}
               >
-                Reveal votes
+                Execute Reveal
               </Button>
             </div>
           ) : null}
@@ -109,11 +141,13 @@ export function VotingStage({ story }: { story: Story }) {
         ) : null}
       </header>
 
-      <VoterSeats
-        activeStoryId={story.id}
-        mode={isRevealed ? 'revealed' : 'active'}
-        animateReveal={animateReveal}
-      />
+      {isRevealed ? (
+        animateReveal
+          ? <RevealDeck storyId={story.id} />
+          : <VoterSeats activeStoryId={story.id} mode="revealed" animateReveal={false} />
+      ) : (
+        <ParticipantRoster storyId={story.id} />
+      )}
 
       {isHost && splitOpen && (story.state === 'active' || story.state === 'revealed') ? (
         <SplitForm storyId={story.id} onClose={() => setSplitOpen(false)} />
@@ -121,7 +155,10 @@ export function VotingStage({ story }: { story: Story }) {
 
       {isRevealed ? (
         <>
+          <ConsensusStamp storyId={story.id} animate={animateReveal} />
+          <VarianceBanner storyId={story.id} />
           <RevealStats storyId={story.id} animateReveal={animateReveal} />
+          <SessionResultsPanel storyId={story.id} />
           {/* S8.iv.c3 — AI panel BELOW the team result. Hierarchy is product
            *  hierarchy: team estimate is primary, AI is secondary reference.
            *  Render only when `story.ai` exists, which means:
@@ -141,9 +178,12 @@ export function VotingStage({ story }: { story: Story }) {
           {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
         </>
       ) : (
-        <div data-slot="cast">
-          {canVote ? <CastPanel story={story} /> : null}
-        </div>
+        <>
+          <TableDeck storyId={story.id} />
+          <div data-slot="cast">
+            {canVote ? <CastPanel story={story} /> : null}
+          </div>
+        </>
       )}
 
       {/* S8.iii.c3 — host-only AI affordance + panel. Pre-reveal only:
@@ -151,6 +191,9 @@ export function VotingStage({ story }: { story: Story }) {
        *  Voters never render this; AA-1 is also data-enforced (their
        *  `story.ai` is always undefined). */}
       {isHost && story.state === 'active' ? <HostAiSection story={story} /> : null}
+
+      {/* Section 6.3 — once-per-reveal SR announcement. Visually hidden, aria-live polite. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{srAnnounce}</div>
     </section>
   );
 }

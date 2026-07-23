@@ -62,7 +62,7 @@ describe('RoomShell — empty state (Fix 07)', () => {
 
     expect(screen.getByRole('heading', { name: 'Your room is ready.' })).toBeInTheDocument();
     expect(screen.getByText(/Add your first story/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy room link/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Copy Invite Link/ })).toBeInTheDocument();
     // Deck context: fibonacci values rendered.
     for (const v of ['1', '2', '3', '5', '8', '13', '21']) {
       expect(screen.getByText(v)).toBeInTheDocument();
@@ -80,10 +80,10 @@ describe('RoomShell — empty state (Fix 07)', () => {
 
     expect(screen.getByRole('heading', { name: 'Waiting for the host' })).toBeInTheDocument();
     expect(screen.queryByText(/Add your first story/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Copy room link/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Copy Invite Link/ })).not.toBeInTheDocument();
   });
 
-  it('host clicks Copy room link → writes `${origin}/${slug}` to the clipboard', async () => {
+  it('host clicks Copy Invite Link → writes `${origin}/${slug}` to the clipboard and shows toast', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true, value: { writeText },
@@ -97,9 +97,9 @@ describe('RoomShell — empty state (Fix 07)', () => {
     });
     renderShell();
 
-    await userEvent.click(screen.getByRole('button', { name: /Copy room link/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Copy Invite Link/ }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/${SLUG}`);
-    await waitFor(() => expect(screen.getByRole('button', { name: /Copied/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('URL COPIED TO CLIPBOARD')).toBeInTheDocument());
   });
 });
 

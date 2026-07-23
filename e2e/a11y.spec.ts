@@ -96,7 +96,7 @@ test.describe('S10.vi a11y — WCAG 2.1 AA on the key screens', () => {
     await addStory(host.page, 'Wire OAuth');
     await openVotingFirstStory(host.page);
     await castVote(alice.page, '5');
-    await host.page.getByRole('button', { name: 'Reveal votes' }).click();
+    await host.page.getByRole('button', { name: 'Execute Reveal' }).click();
     await host.page.getByRole('button', { name: 'Commit estimate' }).waitFor();
     await expectZeroAxeViolations(host.page, 'reveal');
     // Keyboard reach: the Commit estimate primary is focusable.

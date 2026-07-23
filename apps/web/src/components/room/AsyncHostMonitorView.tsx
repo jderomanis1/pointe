@@ -103,7 +103,7 @@ export function AsyncHostMonitorView({ room, slug }: { room: Room; slug: string 
                   data-slot="vote-count"
                   className={cn(
                     'shrink-0 font-mono text-meta tabular-nums',
-                    isFull ? 'text-accent' : 'text-text-secondary',
+                    isFull ? 'text-accent-text' : 'text-text-secondary',
                   )}
                   aria-label={`${voted} of ${total} voted`}
                 >
