@@ -19,7 +19,7 @@ const TRANS = '[transition:transform_80ms_cubic-bezier(0.1,0.9,0.2,1),box-shadow
 const VARIANT: Record<ButtonVariant, string> = {
   // Section 3.4 — high-priority actions (EXECUTE REVEAL, CREATE SESSION)
   primary: cn(
-    'bg-accent text-white border border-accent font-bold',
+    'bg-accent text-accent-ink border border-accent font-bold',
     'shadow-[var(--shadow-hard-sm)]',
     'hover:bg-accent-hover hover:-translate-x-px hover:-translate-y-px hover:shadow-[var(--shadow-hard-md)]',
     'active:bg-accent-hover active:translate-x-px active:translate-y-px active:shadow-none',

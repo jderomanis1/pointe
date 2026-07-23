@@ -471,10 +471,12 @@ Minimum WCAG AA: 4.5:1 normal text. Computed with sRGB linearization (WCAG 2.1 f
 | `warning-on` on `warning-surface`<br>`#F59E0B` (dk) · `#92400E` (lt) | 6.61:1 ✓ | 5.99:1 ✓ | 5.52:1 ✓ | 5.03:1 ✓ |
 | `error-on` on `error-surface`<br>`#F87171` (dk) · `#991B1B` (lt) | 5.55:1 ✓ | 5.07:1 ✓ | 6.27:1 ✓ | 5.71:1 ✓ |
 | `success-on` on `success-surface` _(v1.3 ref)_<br>`#10B981` (dk) · `#064E3B` (lt) | 5.44:1 ✓ | 4.92:1 ✓ | 7.70:1 ✓ | 7.02:1 ✓ |
-| `accent-ink` on `accent` — solid CTA button<br>`#FFFFFF` on `#FF4500` (dk) · `#D03800` (lt) | **3.44:1 ✗** | — | 4.94:1 ✓ | — |
+| `accent-ink` on `accent` — solid CTA button<br>dk `#121212` / lt `#FFFFFF` on accent fill | 5.44:1 ✓ | 4.85:1 ✓ _(hover)_ | 4.94:1 ✓ | 6.46:1 ✓ _(hover)_ |
 
-**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. All fixed in v1.4.
+Note: for the CTA row, "surface-raised" = hover/active fill state, not a page surface. Dark hover bumped `#E03E00` → `#F04000` (was 4.33:1 with dark ink; now 4.85:1). Light uses white ink throughout.
 
-**Deferred:** The `accent-ink` / `accent` pair fails in dark mode only (3.44:1). Solid CTA buttons (`bg-accent text-accent-ink`) use vermilion fill with white ink — cannot reach 4.5:1 at this hue brightness. Fix requires either a dark ink on the solid fill or a lighter vermilion. Deferred pending design decision.
+**Before (failing values):** `text-accent` on `bg-accent-tint` was 4.27:1 dark / 3.91:1 light. `warning-on` (`var(--semantic-amber)`) was 4.46:1 dark. `error-on` (`var(--semantic-crimson)`) was 3.18:1 dark. `text-tertiary` `#8A8A8A` was 4.27:1 on dark surface-raised. CTA button `text-white` on `#FF4500` dark was 3.44:1. All fixed in v1.4.
 
-**Maintenance rule:** When adding a new semantic color family, include a dedicated `-on` token for text on its tinted surface, set explicitly in both theme blocks, verified in both themes (all four surface columns). Add a new row to this table before shipping.
+**All pairs pass WCAG AA 4.5:1 as of v1.4.** No remaining exceptions.
+
+**Maintenance rule:** When adding a new semantic color family, include a dedicated `-on` token for text on its tinted surface, set explicitly in both theme blocks, verified in both themes (all four surface columns). For solid fill elements (like CTA buttons), use `text-accent-ink` not `text-white` — the token is theme-specific (`#121212` dark / `#FFFFFF` light). Add a new row to this table before shipping.

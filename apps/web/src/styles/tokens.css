@@ -39,7 +39,7 @@
      BRAND PRIMARY & ACCENTS
      ========================================== */
   --accent-vermilion:        #FF4500;
-  --accent-vermilion-hover:  #E03E00;
+  --accent-vermilion-hover:  #F04000;  /* v1.4: bumped from #E03E00 — too dark for dark ink (4.33:1); now 4.85:1 */
   --accent-vermilion-subtle: rgba(255, 69, 0, 0.12);
 
   /* ==========================================
@@ -148,7 +148,7 @@
 
   /* Accent */
   --color-accent:        var(--accent-vermilion);
-  --color-accent-ink:    #FFFFFF;
+  --color-accent-ink:    #121212;              /* Dark ink on dark-mode vermilion (5.44:1/4.85:1 hover) */
   --color-accent-hover:  var(--accent-vermilion-hover);
   --color-accent-active: var(--accent-vermilion-hover);
   --color-accent-tint:   var(--accent-vermilion-subtle);
@@ -223,6 +223,7 @@
 
   --accent-vermilion:        #D03800;
   --accent-vermilion-hover:  #B02F00;
+  --color-accent-ink:        #FFFFFF;              /* White ink on light-mode vermilion (4.94:1/6.46:1 hover) */
   --accent-vermilion-subtle: rgba(208, 56, 0, 0.08);
 
   --semantic-emerald:    #059669;
