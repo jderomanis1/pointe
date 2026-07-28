@@ -7,7 +7,7 @@ import {
 } from './helpers/multi-context';
 
 const E2E_TOKEN = 'dev-e2e-token';
-const roster = (page: import('@playwright/test').Page) => page.locator('section[aria-label="Team roster"]');
+const roster = (page: import('@playwright/test').Page) => page.locator('aside[aria-label="Team roster"]');
 
 test.describe('live room resilience', () => {
   test('voter network drop reconnects with the same identity and vote', async ({ browser }) => {
