@@ -15,7 +15,6 @@ type JoinRole = 'voter' | 'spectator';
 
 type ProbeState =
   | { kind: 'loading' }
-  /** S9.ii.c4 — carry mode + closesAt so the join form can frame async arrival. */
   | { kind: 'found'; mode: RoomMode; closesAt: number | null }
   | { kind: 'not_found' }
   | { kind: 'probe_error'; message: string };
@@ -44,11 +43,6 @@ export function RoomPage({ slug }: { slug: string }) {
   useEffect(() => {
     if (probe.kind !== 'found' || joinParams || !navState?.asHost) return;
     setJoinParams({
-      // S10.i — derive the WS URL from the current origin (`buildWsUrl`),
-      // not from the server's POST /api/rooms response. In dev the
-      // server sits behind a Vite proxy and its Host header is
-      // 127.0.0.1:8787 — unreachable from the browser at localhost:5173.
-      // The client always knows its own origin; rely on that.
       wsUrl: buildWsUrl(slug),
       join: {
         slug,
@@ -59,10 +53,10 @@ export function RoomPage({ slug }: { slug: string }) {
     });
   }, [probe.kind, joinParams, navState, slug]);
 
-  if (probe.kind === 'loading') return <PageShell><p className="text-text-secondary">Looking up <Slug slug={slug} />…</p></PageShell>;
+  if (probe.kind === 'loading') return <PageShell><StatusCard>Looking up <Slug slug={slug} />…</StatusCard></PageShell>;
   if (probe.kind === 'not_found') return <RoomNotFound slug={slug} />;
   if (probe.kind === 'probe_error') {
-    return <PageShell><p className="text-error">Couldn&apos;t reach the server: {probe.message}</p></PageShell>;
+    return <PageShell><StatusCard tone="error">Couldn&apos;t reach the server: {probe.message}</StatusCard></PageShell>;
   }
   if (!joinParams) return (
     <JoinForm
@@ -75,26 +69,53 @@ export function RoomPage({ slug }: { slug: string }) {
   return <RoomConnected wsUrl={joinParams.wsUrl} join={joinParams.join} slug={slug} />;
 }
 
-// ---- pre-shell page wrapper (only used before the room shell takes over) ----
-
 function PageShell({ children }: { children: ReactNode }) {
   return (
-    <main className="bg-bg text-text min-h-screen font-sans">
-      <div className="max-w-xl mx-auto px-6 py-24">{children}</div>
+    <main className="relative min-h-screen overflow-hidden bg-bg text-text font-sans">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[520px] opacity-70"
+        style={{
+          background:
+            'radial-gradient(circle at 14% 8%, rgba(255,138,61,.20), transparent 34%), radial-gradient(circle at 86% 16%, rgba(46,158,143,.13), transparent 28%)',
+        }}
+      />
+      <header className="relative mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
+        <Link to="/" className="inline-flex items-center gap-3" aria-label="Pointe home">
+          <span className="relative block h-10 w-11" aria-hidden="true">
+            <span className="absolute left-1 top-1 h-8 w-6 -rotate-6 rounded-[8px] border-2 border-text bg-surface" />
+            <span className="absolute right-0 top-0 grid h-9 w-7 rotate-6 place-items-center rounded-[8px] border-2 border-text bg-accent text-sm font-black text-accent-ink shadow-card">5</span>
+          </span>
+          <span className="font-serif text-3xl leading-none tracking-[-.03em]">Pointe</span>
+        </Link>
+        <span className="rounded-full border border-hairline bg-surface/90 px-3 py-1.5 text-caption font-bold text-text-secondary shadow-card">
+          Free planning poker
+        </span>
+      </header>
+      <div className="relative mx-auto flex min-h-[calc(100vh-160px)] max-w-xl items-center px-5 py-10 sm:px-8">
+        <div className="w-full">{children}</div>
+      </div>
+      <footer className="relative px-5 pb-8 text-center text-caption text-text-muted">
+        No account required · Private by default · Open source
+      </footer>
     </main>
   );
 }
 
-function Slug({ slug }: { slug: string }) {
-  return <span className="font-mono text-text">{slug}</span>;
+function StatusCard({ children, tone = 'default' }: { children: ReactNode; tone?: 'default' | 'error' }) {
+  return (
+    <div className={tone === 'error'
+      ? 'rounded-[22px] border border-error bg-error-surface p-6 text-error-on shadow-card'
+      : 'rounded-[22px] border border-hairline bg-surface p-6 text-text-secondary shadow-card'}>
+      {children}
+    </div>
+  );
 }
 
-/**
- * S9.ii.c4 — async pre-join framing. Shown above the join form when the
- * probe returns mode='async'. Closes-in countdown ticks every second
- * while the user is on the page; absent when the host hasn't opened the
- * window yet (closesAt === null) — we just say "vote at your pace".
- */
+function Slug({ slug }: { slug: string }) {
+  return <span className="font-mono font-semibold text-text">{slug}</span>;
+}
+
 function AsyncJoinFraming({ closesAt }: { closesAt: number | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -106,20 +127,19 @@ function AsyncJoinFraming({ closesAt }: { closesAt: number | null }) {
   return (
     <section
       data-slot="async-join-framing"
-      className="mt-6 rounded-md bg-accent-tint border border-accent px-4 py-3 flex flex-col gap-1"
+      className="mt-5 rounded-[16px] border border-accent bg-accent-tint px-4 py-3"
       aria-label="Async voting"
     >
-      <p className="text-meta font-medium text-accent-on">
-        Async voting{closesAt !== null ? ' — vote at your pace' : ''}
+      <p className="text-meta font-bold uppercase tracking-[.1em] text-accent-on">
+        Async voting{closesAt !== null ? ' · vote at your pace' : ''}
       </p>
       {countdownStr ? (
-        <p className="text-caption text-text">
-          Closes in{' '}
-          <span className="font-mono text-text" data-testid="join-countdown">{countdownStr}</span>
+        <p className="mt-1 text-caption text-text">
+          Closes in <span className="font-mono font-semibold text-text" data-testid="join-countdown">{countdownStr}</span>
         </p>
       ) : (
-        <p className="text-caption text-text-secondary">
-          The host hasn&rsquo;t opened the window yet — you&rsquo;ll join the lobby.
+        <p className="mt-1 text-caption text-text-secondary">
+          The host hasn&rsquo;t opened the window yet. You&apos;ll join the lobby first.
         </p>
       )}
     </section>
@@ -138,13 +158,16 @@ function formatJoinCountdown(ms: number): string {
 function RoomNotFound({ slug }: { slug: string }) {
   return (
     <PageShell>
-      <h1 className="font-serif text-display text-text">No room here</h1>
-      <p className="text-text-secondary text-body mt-3">
-        <Slug slug={slug} /> doesn&apos;t match any open room.
-      </p>
-      <p className="mt-6">
-        <Link to="/" className="text-accent-text font-medium">Create one →</Link>
-      </p>
+      <section className="rounded-[26px] border border-hairline bg-surface p-6 shadow-pop sm:p-8">
+        <p className="text-meta font-bold uppercase tracking-[.14em] text-accent-text">Room unavailable</p>
+        <h1 className="mt-3 font-serif text-5xl leading-none tracking-[-.03em]">No table is open here.</h1>
+        <p className="mt-4 text-body leading-7 text-text-secondary">
+          <Slug slug={slug} /> does not match an active room. Check the invitation or create a fresh session.
+        </p>
+        <p className="mt-7">
+          <Link to="/" className="inline-flex min-h-11 items-center rounded-full bg-accent px-5 font-bold text-accent-ink shadow-card">Create a session</Link>
+        </p>
+      </section>
     </PageShell>
   );
 }
@@ -173,41 +196,64 @@ function JoinForm({ slug, mode, closesAt, onSubmit }: {
   }
 
   return (
-    <PageShell>
-      <h1 className="font-serif text-display text-text">Join <Slug slug={slug} /></h1>
+    <section className="rounded-[26px] border border-hairline bg-surface p-5 shadow-pop sm:p-8">
+      <p className="text-meta font-bold uppercase tracking-[.14em] text-accent-text">You&apos;re invited</p>
+      <h1 className="mt-3 font-serif text-5xl leading-none tracking-[-.035em]">Join the table.</h1>
+      <p className="mt-3 text-sm text-text-secondary">Room <Slug slug={slug} /></p>
       {mode === 'async' ? <AsyncJoinFraming closesAt={closesAt} /> : null}
-      <form onSubmit={submit} className="mt-8 bg-surface border border-hairline rounded-md p-6 flex flex-col gap-5">
+      <form onSubmit={submit} className="mt-7 flex flex-col gap-5">
         <Input
           id="join-name"
           label="Your name"
-          placeholder="e.g. Alice"
+          placeholder="e.g. Maya"
           value={name}
           onChange={(e) => setName(e.target.value)}
           error={error ?? undefined}
           autoFocus
         />
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-meta text-text-secondary mb-1">How you&apos;ll participate</legend>
-          <label className="flex items-center gap-2 text-body cursor-pointer">
-            <input
-              type="radio" name="role" value="voter"
-              checked={role === 'voter'} onChange={() => setRole('voter')}
+          <legend className="mb-1 text-meta font-semibold text-text-secondary">How will you participate?</legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <RoleOption
+              active={role === 'voter'}
+              onSelect={() => setRole('voter')}
+              title="Voter"
+              description="Estimate every story."
             />
-            <span>Voter — vote on every story.</span>
-          </label>
-          <label className="flex items-center gap-2 text-body cursor-pointer">
-            <input
-              type="radio" name="role" value="spectator"
-              checked={role === 'spectator'} onChange={() => setRole('spectator')}
+            <RoleOption
+              active={role === 'spectator'}
+              onSelect={() => setRole('spectator')}
+              title="Spectator"
+              description="Watch without voting."
             />
-            <span>Spectator — watch only, don&apos;t vote.</span>
-          </label>
+          </div>
         </fieldset>
-        <div>
-          <Button type="submit" variant="primary">Join</Button>
-        </div>
+        <Button type="submit" variant="primary">Join</Button>
       </form>
-    </PageShell>
+    </section>
+  );
+}
+
+function RoleOption({ active, onSelect, title, description }: {
+  active: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label className={active
+      ? 'cursor-pointer rounded-[16px] border border-accent bg-accent-tint p-4 shadow-card'
+      : 'cursor-pointer rounded-[16px] border border-hairline bg-surface p-4 hover:border-text-muted'}>
+      <input
+        type="radio"
+        name="role"
+        checked={active}
+        onChange={onSelect}
+        className="sr-only"
+      />
+      <span className="block font-bold text-text">{title}</span>
+      <span className="mt-1 block text-caption text-text-secondary">{description}</span>
+    </label>
   );
 }
 
@@ -222,13 +268,13 @@ function RoomConnected({ wsUrl, join, slug }: { wsUrl: string; join: JoinRoomPay
   const room = useRoomStore((s) => s.room);
 
   if (connection !== 'connected' || !room) {
-    return <PageShell><p className="text-text-secondary">Joining <Slug slug={slug} />…</p></PageShell>;
+    return <PageShell><StatusCard>Joining <Slug slug={slug} />…</StatusCard></PageShell>;
   }
 
   return (
     <RoomClientProvider send={api.send}>
       {serverError ? (
-        <div className="bg-error-surface text-error-on text-meta px-4 py-2 text-center">
+        <div className="bg-error-surface px-4 py-2 text-center text-meta text-error-on">
           {serverError.code}: {serverError.message}
         </div>
       ) : null}
