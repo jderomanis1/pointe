@@ -53,14 +53,14 @@ export function ShareLink({ slug }: { slug: string }) {
           leftIcon={copied ? <Check size={16} /> : <Link2 size={16} />}
           className="w-full"
         >
-          {copied ? 'Invite link copied' : 'Copy invite link'}
+          {copied ? 'Invite Link Copied' : 'Copy Invite Link'}
         </Button>
         <code className="block max-w-full select-all overflow-hidden text-ellipsis whitespace-nowrap rounded-[10px] bg-fill px-3 py-2 font-mono text-caption text-text-secondary">
           {url}
         </code>
       </div>
       {toast && (
-        <PointeToast message="Invite link copied" onDismiss={() => setToast(false)} />
+        <PointeToast message="URL COPIED TO CLIPBOARD" onDismiss={() => setToast(false)} />
       )}
     </>
   );
@@ -89,10 +89,10 @@ export function EmptyState({
           <Users size={28} aria-hidden="true" />
         </div>
         <h1 className="relative mt-5 font-serif text-[clamp(2.4rem,7vw,4rem)] leading-none tracking-[-.035em] text-text">
-          Pull up a chair.
+          Waiting for the host
         </h1>
         <p className="relative mx-auto mt-4 max-w-xl text-body leading-7 text-text-secondary">
-          You’re at the table. The first story will appear as soon as the host starts the round.
+          Pull up a chair. You’re at the table, and the first story will appear as soon as the host starts the round.
         </p>
         <div className="relative mt-8 flex flex-wrap justify-center gap-2" aria-label={`${deckLabel(deck)} deck`}>
           {values.slice(0, 8).map((v) => (
@@ -131,7 +131,7 @@ export function EmptyState({
           <div className="mb-4 flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-full bg-accent text-sm font-extrabold text-accent-ink">1</span>
             <div>
-              <h2 className="font-bold text-text">Add the first story</h2>
+              <h2 className="font-bold text-text">Add your first story</h2>
               <p className="text-caption text-text-secondary">A title is enough. You can add more after the round begins.</p>
             </div>
           </div>
