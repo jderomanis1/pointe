@@ -60,3 +60,46 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/worker
           command: deploy
+
+      - name: Verify production API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          health_ok=false
+          retro_route_ok=false
+
+          for attempt in {1..18}; do
+            health_status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /tmp/pointe-health.json --write-out "%{http_code}" \
+              "https://pointe.team/api/health" || true)
+
+            retro_status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /tmp/pointe-retro-route.json --write-out "%{http_code}" \
+              "https://pointe.team/api/retros/production-smoke-999999999" || true)
+
+            if [ "$health_status" = "200" ]; then
+              health_ok=true
+            fi
+            if [ "$retro_status" = "404" ] && grep -Fq '"code":"RETRO_NOT_FOUND"' /tmp/pointe-retro-route.json; then
+              retro_route_ok=true
+            fi
+
+            if [ "$health_ok" = true ] && [ "$retro_route_ok" = true ]; then
+              cat /tmp/pointe-health.json
+              cat /tmp/pointe-retro-route.json
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: health=${health_status}, retro-route=${retro_status}; retrying..."
+            sleep 5
+          done
+
+          echo "Production API verification failed" >&2
+          echo "Health response:" >&2
+          cat /tmp/pointe-health.json >&2 || true
+          echo "Retro route response:" >&2
+          cat /tmp/pointe-retro-route.json >&2 || true
+          exit 1
