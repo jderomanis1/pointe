@@ -12,7 +12,7 @@ test.describe('multi-user live planning poker', () => {
     const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });
     const bob = await joinAsVoter(browser, { slug: host.slug, name: 'Bob' });
 
-    const roster = host.page.locator('section[aria-label="Team roster"]').filter({ hasText: 'Voters · 3' });
+    const roster = host.page.locator('aside[aria-label="Team roster"]').filter({ hasText: 'Voters · 3' });
     await expect(roster).toBeVisible();
     await expect(roster.getByText('Helen')).toBeVisible();
     await expect(roster.getByText('Alice')).toBeVisible();
