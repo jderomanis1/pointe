@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Check, Link2, Users } from 'lucide-react';
+import { Check, Link2, Plus, Users } from 'lucide-react';
 import type { DeckType } from '@pointe/shared';
 import { Button } from '../Button';
 import { Badge } from '../Badge';
@@ -129,7 +129,9 @@ export function EmptyState({
       <div className="relative mt-8 grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
         <section className="rounded-[22px] border border-hairline bg-bg/45 p-4 sm:p-5">
           <div className="mb-4 flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-full bg-accent text-sm font-extrabold text-accent-ink">1</span>
+            <span aria-hidden="true" className="grid size-9 place-items-center rounded-full bg-accent text-accent-ink">
+              <Plus size={18} />
+            </span>
             <div>
               <h2 className="font-bold text-text">Add your first story</h2>
               <p className="text-caption text-text-secondary">A title is enough. You can add more after the round begins.</p>
@@ -140,7 +142,9 @@ export function EmptyState({
 
         <section className="rounded-[22px] border border-hairline bg-bg/45 p-4 sm:p-5">
           <div className="mb-4 flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-full bg-[#2E9E8F] text-sm font-extrabold text-white">2</span>
+            <span aria-hidden="true" className="grid size-9 place-items-center rounded-full bg-[#2E9E8F] text-white">
+              <Link2 size={17} />
+            </span>
             <div>
               <h2 className="font-bold text-text">Invite the team</h2>
               <p className="text-caption text-text-secondary">Anyone with the link can join.</p>
