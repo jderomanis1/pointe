@@ -48,8 +48,8 @@ beforeEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
 
-describe('Open voting — host control', () => {
-  it('host on a pending story sees "Open voting"; click sends OPEN_VOTING { storyId }', async () => {
+describe('Open voting — legacy host control', () => {
+  it('host on a pending legacy story sees Open voting and sends OPEN_VOTING', async () => {
     seed({
       room: room(),
       voters: [voter(HOST_ID, 'Alice', 'host'), voter(VOTER_ID, 'Bob')],
@@ -77,7 +77,7 @@ describe('Open voting — host control', () => {
 });
 
 describe('VotingStage — active story focus', () => {
-  it('renders the story text as a serif heading + voting-open status; cast slot present', () => {
+  it('renders the story as a clean bold heading with voting status and cast slot', () => {
     seed({
       room: room(),
       voters: [voter(HOST_ID, 'Alice', 'host'), voter(VOTER_ID, 'Bob')],
@@ -91,21 +91,15 @@ describe('VotingStage — active story focus', () => {
 
     const heading = screen.getByRole('heading', { name: 'Add password reset' });
     expect(heading).toBeInTheDocument();
-    expect(heading.className).toMatch(/font-serif/);
+    expect(heading.className).toMatch(/font-extrabold/);
     expect(screen.getByText('voting open')).toBeInTheDocument();
-    // PROJ-1 appears in both the stage and the queue row — both legitimate.
     expect(screen.getAllByText('PROJ-1').length).toBeGreaterThanOrEqual(1);
-
-    // The cast slot exists. R5.iii fills it with the CastPanel for voters/host;
-    // the spectator-gating + cast behavior are covered in CastPanel.test.tsx.
-    const slot = document.querySelector('[data-slot="cast"]') as HTMLElement | null;
-    expect(slot).not.toBeNull();
+    expect(document.querySelector('[data-slot="cast"]')).not.toBeNull();
   });
 });
 
-describe('VoterSeats — ANTI-ANCHORING UI INVARIANT', () => {
-  it('shows who voted (presence) but never any peer value', () => {
-    // Distinctive markers we'd notice if a peer value leaked into rendered output.
+describe('VoterSeats — anti-anchoring UI invariant', () => {
+  it('shows who voted but never any peer value', () => {
     const peerSecretPoints = 'XPEER-POINTS';
     const peerSecretConfidenceText = 'XPEER-CONFIDENCE-99';
 
@@ -120,40 +114,27 @@ describe('VoterSeats — ANTI-ANCHORING UI INVARIANT', () => {
       stories: [{ ...story('s-1', 100, 'A story', 'active') }],
       you: { voterId: VOTER_ID, role: 'voter' },
     });
-    // Pre-reveal: the store shape physically can't hold peer values. Hand-poking the store
-    // to insert `myVotes` for the local user (legitimate — vote_value mirror) and presence
-    // for two peers; then assert nothing in the DOM exposes points/confidence for peers.
     useRoomStore.setState((s) => ({
       ...s,
-      votedPresence: { 's-1': new Set(['host-1', 'voter-1']) }, // Alice + Ben voted
+      votedPresence: { 's-1': new Set(['host-1', 'voter-1']) },
       myVotes: { 's-1': { points: '5', confidence: 4 } },
     }));
 
     renderShell();
 
-    // Presence visible:
     expect(screen.getByTestId('seat-host-1').getAttribute('data-voted')).toBe('true');
     expect(screen.getByTestId('seat-voter-1').getAttribute('data-voted')).toBe('true');
     expect(screen.getByTestId('seat-v-cyd').getAttribute('data-voted')).toBe('false');
 
-    // ParticipantRoster (R4.v) is unified — spectators appear with [OBS] status, not as voters.
     const specRow = screen.getByTestId('seat-spec-1');
     expect(specRow.getAttribute('data-voted')).toBe('false');
-    // Spectator name appears in both the roster table and the Roster sidebar.
     expect(screen.getAllByText('Specs').length).toBeGreaterThanOrEqual(1);
-    // [OBS] is the ParticipantRoster status marker — unique to spectators in the table.
     expect(screen.getByText('[OBS]')).toBeInTheDocument();
 
-    // Anti-anchoring: assert no peer value reaches the DOM. The store didn't hold one,
-    // but seal that with a grep over the rendered HTML for distinctive markers.
     const html = document.body.innerHTML;
     expect(html).not.toContain(peerSecretPoints);
     expect(html).not.toContain(peerSecretConfidenceText);
-
-    // Peer point values must not appear in the seat rows (row index is an allowed digit).
-    const benSeat = screen.getByTestId('seat-voter-1');
-    expect(benSeat.textContent ?? '').not.toContain(peerSecretPoints);
-    const cydSeat = screen.getByTestId('seat-v-cyd');
-    expect(cydSeat.textContent ?? '').not.toContain(peerSecretPoints);
+    expect(screen.getByTestId('seat-voter-1').textContent ?? '').not.toContain(peerSecretPoints);
+    expect(screen.getByTestId('seat-v-cyd').textContent ?? '').not.toContain(peerSecretPoints);
   });
 });
