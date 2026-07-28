@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Pointe</title>
+  <rect width="64" height="64" rx="16" fill="#FFF6E8"/>
+  <g transform="translate(11 9)">
+    <rect x="3" y="5" width="28" height="40" rx="8" transform="rotate(-7 17 25)" fill="#FFFEFA" stroke="#3F2E26" stroke-width="3"/>
+    <rect x="16" y="1" width="29" height="42" rx="8" transform="rotate(7 30 22)" fill="#F07C2A" stroke="#3F2E26" stroke-width="3"/>
+    <text x="30.5" y="29" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="800" fill="#3F2E26">5</text>
+  </g>
+</svg>
