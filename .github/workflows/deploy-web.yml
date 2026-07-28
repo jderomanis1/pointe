@@ -66,3 +66,36 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/web
           command: deploy
+
+      - name: Verify production web and SEO
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fetch_with_retry() {
+            local url="$1"
+            local output="$2"
+            for attempt in {1..18}; do
+              if curl --fail --silent --show-error --location \
+                --connect-timeout 10 --max-time 30 \
+                "$url" --output "$output"; then
+                return 0
+              fi
+              echo "Attempt ${attempt} failed for ${url}; retrying..."
+              sleep 5
+            done
+            echo "Production verification failed for ${url}" >&2
+            return 1
+          }
+
+          fetch_with_retry "https://pointe.team/" /tmp/pointe-home.html
+          fetch_with_retry "https://pointe.team/retro" /tmp/pointe-retro.html
+          fetch_with_retry "https://pointe.team/robots.txt" /tmp/pointe-robots.txt
+          fetch_with_retry "https://pointe.team/sitemap.xml" /tmp/pointe-sitemap.xml
+
+          grep -Fq "Planning Poker &amp; Retrospectives for Agile Teams" /tmp/pointe-home.html \
+            || grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-home.html
+          grep -Fq "Planning Poker &amp; Retrospectives for Agile Teams" /tmp/pointe-retro.html \
+            || grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-retro.html
+          grep -Fq "Sitemap: https://pointe.team/sitemap.xml" /tmp/pointe-robots.txt
+          grep -Fq "https://pointe.team/retro" /tmp/pointe-sitemap.xml
