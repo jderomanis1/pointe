@@ -1,20 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
 import { useRoomStore } from '../../store/roomStore';
 import { cn } from '../../lib/cn';
 
-// Section 3.3 + Section 4.3/4.4 — typographic print roster with join/leave motion.
-// Join (4.3): 0px→40px height (80ms linear) + translateX(-8px→0) slide (50ms, 80ms delay).
-// Left (4.4): show [× OFFLINE] at 0.45 opacity for 500ms, then disappear.
-// 'reconnecting' never fires server-side (socket drop = immediate 'left'); handled per spec.
+const AVATAR_TONES = [
+  'border-[#F07C2A] bg-[#F07C2A]/10 text-[#9F3B00]',
+  'border-[#2E9E8F] bg-[#2E9E8F]/10 text-[#17665D]',
+  'border-[#E04F4F] bg-[#E04F4F]/10 text-[#8D3030]',
+  'border-[#3C9E5D] bg-[#3C9E5D]/10 text-[#246D3B]',
+  'border-[#C28A18] bg-[#FFC24B]/15 text-[#755000]',
+];
 
-function StatusCell({ connectionState, voted, role }: { connectionState: string; voted: boolean; role: string }) {
-  if (connectionState !== 'connected') {
-    return <span className="italic text-text-muted">[× OFFLINE]</span>;
-  }
-  if (role === 'spectator') return <span className="text-text-secondary">[OBS]</span>;
-  return voted
-    ? <span className="text-accent-text">● READY</span>
-    : <span className="text-text-muted">○ PENDING</span>;
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?';
+}
+
+function toneFor(id: string): string {
+  const score = [...id].reduce((total, char) => total + char.charCodeAt(0), 0);
+  return AVATAR_TONES[score % AVATAR_TONES.length];
 }
 
 export function ParticipantRoster({ storyId }: { storyId: string }) {
@@ -23,96 +29,74 @@ export function ParticipantRoster({ storyId }: { storyId: string }) {
   const me = useRoomStore((s) => s.me);
   const myVote = useRoomStore((s) => s.myVotes[storyId]);
 
-  // Track voters mid-leave (500ms grace before row disappears). Section 4.4.
-  const [pendingLeft, setPendingLeft] = useState<Set<string>>(new Set());
-  const prevStates = useRef<Map<string, string>>(new Map());
+  const all = Object.values(voters).filter((v) => v.connectionState !== 'left');
+  const seated = all
+    .filter((v) => v.role !== 'spectator')
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const spectators = all.filter((v) => v.role === 'spectator');
 
-  // Track new arrivals for join animation. Section 4.3.
-  const [newIds, setNewIds] = useState<Set<string>>(new Set());
-  const prevIds = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    const currentIds = new Set(Object.keys(voters));
-
-    // Joined: present now, not seen before, and not immediately left
-    const joined = new Set(
-      [...currentIds].filter((id) => !prevIds.current.has(id) && voters[id].connectionState !== 'left'),
-    );
-    prevIds.current = currentIds;
-
-    if (joined.size > 0) {
-      setNewIds(joined);
-      const t = setTimeout(() => setNewIds(new Set()), 200);
-      // Detect left-transitions after updating prevIds
-      for (const [id, voter] of Object.entries(voters)) {
-        prevStates.current.set(id, voter.connectionState);
-      }
-      return () => clearTimeout(t);
-    }
-
-    // Detect transitions to 'left' → start 500ms grace
-    for (const [id, voter] of Object.entries(voters)) {
-      const prev = prevStates.current.get(id);
-      if (prev && prev !== 'left' && voter.connectionState === 'left') {
-        setPendingLeft((s) => new Set([...s, id]));
-        setTimeout(() => setPendingLeft((s) => { const n = new Set(s); n.delete(id); return n; }), 500);
-      }
-      prevStates.current.set(id, voter.connectionState);
-    }
-  }, [voters]);
-
-  const rows = Object.values(voters)
-    .filter((v) => v.connectionState !== 'left' || pendingLeft.has(v.id))
-    .sort((a, b) => {
-      if (a.role === 'spectator' && b.role !== 'spectator') return 1;
-      if (a.role !== 'spectator' && b.role === 'spectator') return -1;
-      return a.displayName.localeCompare(b.displayName);
-    });
-
-  if (rows.length === 0) return null;
+  if (all.length === 0) return null;
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full font-mono text-meta border-collapse">
-        <thead>
-          <tr className="border-b border-[var(--border-strong)]">
-            <th className="text-left pr-4 pb-1.5 text-text-muted uppercase tracking-[0.12em] w-10 font-normal">IDX</th>
-            <th className="text-left pr-4 pb-1.5 text-text-muted uppercase tracking-[0.12em] font-normal">PARTICIPANT</th>
-            <th className="text-left pr-4 pb-1.5 text-text-muted uppercase tracking-[0.12em] font-normal hidden sm:table-cell">ROLE</th>
-            <th className="text-left pb-1.5 text-text-muted uppercase tracking-[0.12em] font-normal">STATUS</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((v, i) => {
-            const isMe = v.id === me?.voterId;
-            const voted = isMe ? Boolean(myVote) : Boolean(presence?.has(v.id));
-            const isLeaving = pendingLeft.has(v.id);
-            const isNew = newIds.has(v.id);
-            return (
-              <tr
-                key={v.id}
-                data-testid={`seat-${v.id}`}
-                data-voted={voted ? 'true' : 'false'}
+    <section aria-label="People at the table" className="flex flex-col gap-4">
+      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-6 sm:gap-x-7">
+        {seated.map((v) => {
+          const isMe = v.id === me?.voterId;
+          const voted = isMe ? Boolean(myVote) : Boolean(presence?.has(v.id));
+          const offline = v.connectionState !== 'connected';
+
+          return (
+            <li
+              key={v.id}
+              data-testid={`seat-${v.id}`}
+              data-voted={voted ? 'true' : 'false'}
+              className={cn('flex min-w-[76px] flex-col items-center gap-2 text-center', offline && 'opacity-55')}
+            >
+              <div
+                role="img"
+                aria-label={voted ? `${v.displayName} is ready` : `${v.displayName} is thinking`}
                 className={cn(
-                  'border-b border-hairline',
-                  isMe && 'text-text',
-                  isLeaving && 'opacity-45',
-                  isNew && 'anim-roster-join',
+                  'grid h-[72px] w-[52px] place-items-center rounded-[11px] border-2 transition-all duration-200',
+                  voted
+                    ? 'border-[#D97820] shadow-[0_7px_16px_rgba(190,120,40,.22)]'
+                    : 'border-dashed border-hairline bg-bg/35',
                 )}
+                style={voted ? {
+                  background:
+                    'repeating-linear-gradient(45deg, #F5A54A, #F5A54A 6px, #F8B96B 6px, #F8B96B 12px)',
+                } : undefined}
               >
-                <td className="py-1.5 pr-4 text-text-muted tabular-nums">{String(i + 1).padStart(2, '0')}</td>
-                <td className="py-1.5 pr-4 max-w-[180px] truncate">{v.displayName}</td>
-                <td className="py-1.5 pr-4 text-text-secondary hidden sm:table-cell">
-                  {v.role === 'spectator' ? 'Observer' : 'Voter'}
-                </td>
-                <td className="py-1.5">
-                  <StatusCell connectionState={v.connectionState} voted={voted} role={v.role} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                {!voted ? <span className="text-sm font-black text-text-muted">…</span> : null}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={cn('grid size-9 place-items-center rounded-full border-2 text-xs font-extrabold', toneFor(v.id))}>
+                  {initials(v.displayName)}
+                </span>
+                <span className="min-w-0 text-left">
+                  <span className="block max-w-28 truncate text-sm font-bold text-text">
+                    {v.displayName}{isMe ? ' (you)' : ''}
+                  </span>
+                  <span className={voted ? 'block text-caption font-bold text-success-on' : 'block text-caption font-semibold text-text-muted'}>
+                    {voted ? 'ready!' : 'thinking…'}
+                  </span>
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {spectators.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-center gap-2 text-caption text-text-secondary">
+          <span className="font-bold">Watching:</span>
+          {spectators.map((v) => (
+            <span key={v.id} className="rounded-full border border-hairline bg-fill px-3 py-1 font-semibold">
+              {v.displayName}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
