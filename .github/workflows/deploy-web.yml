@@ -93,9 +93,7 @@ jobs:
           fetch_with_retry "https://pointe.team/robots.txt" /tmp/pointe-robots.txt
           fetch_with_retry "https://pointe.team/sitemap.xml" /tmp/pointe-sitemap.xml
 
-          grep -Fq "Planning Poker &amp; Retrospectives for Agile Teams" /tmp/pointe-home.html \
-            || grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-home.html
-          grep -Fq "Planning Poker &amp; Retrospectives for Agile Teams" /tmp/pointe-retro.html \
-            || grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-retro.html
+          grep -Fq "Free Live Planning Poker for Agile Teams" /tmp/pointe-home.html
+          grep -Fq "Free Live Planning Poker for Agile Teams" /tmp/pointe-retro.html
           grep -Fq "Sitemap: https://pointe.team/sitemap.xml" /tmp/pointe-robots.txt
           grep -Fq "https://pointe.team/retro" /tmp/pointe-sitemap.xml
