@@ -43,7 +43,7 @@ function BrandMark() {
     <span className="relative block h-10 w-11 shrink-0" aria-hidden="true">
       <span className="absolute left-1 top-1 h-8 w-6 -rotate-6 rounded-[8px] border-2 border-text bg-surface" />
       <span className="absolute right-0 top-0 grid h-9 w-7 rotate-6 place-items-center rounded-[8px] border-2 border-text bg-accent text-sm font-black text-accent-ink shadow-card">
-        5
+        P
       </span>
     </span>
   );
