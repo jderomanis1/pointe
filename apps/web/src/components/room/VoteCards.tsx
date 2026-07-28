@@ -1,23 +1,21 @@
-import { useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { cn } from '../../lib/cn';
 
-// --ease-snap for all micro-interactions per Section 3.1.
-const TRANS = '[transition:transform_80ms_cubic-bezier(0.1,0.9,0.2,1),box-shadow_80ms_cubic-bezier(0.1,0.9,0.2,1),background-color_80ms_cubic-bezier(0.1,0.9,0.2,1),border-color_80ms_cubic-bezier(0.1,0.9,0.2,1),color_80ms_cubic-bezier(0.1,0.9,0.2,1)]';
+const TRANS = '[transition:transform_220ms_cubic-bezier(.34,1.56,.64,1),box-shadow_160ms_ease,background-color_120ms_ease,border-color_120ms_ease,color_120ms_ease,opacity_120ms_ease]';
 
 const CARD_BASE = cn(
-  'relative w-24 h-32 rounded-[2px] border select-none',
+  'pointe-vote-card relative h-[98px] w-[66px] shrink-0 select-none rounded-[12px] border-2 sm:h-[108px] sm:w-[74px]',
   TRANS,
-  'focus-visible:[outline:2px_solid_var(--border-focus)] focus-visible:[outline-offset:2px]',
-  'disabled:opacity-40 disabled:cursor-not-allowed disabled:border-dashed',
+  'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-accent focus-visible:ring-offset-3 focus-visible:ring-offset-bg',
+  'disabled:cursor-not-allowed disabled:opacity-40',
 );
 
 const CARD_DEFAULT = cn(
-  'bg-surface border-hairline text-text cursor-pointer',
-  'hover:-translate-y-0.5 hover:border-text hover:shadow-[var(--shadow-hard-sm)]',
-  'active:translate-x-px active:translate-y-px active:shadow-none',
+  'cursor-pointer border-[#E7D4BB] bg-surface text-text shadow-[0_6px_14px_rgba(102,61,29,.14)]',
+  'hover:border-accent hover:shadow-[0_12px_24px_rgba(102,61,29,.18)]',
 );
 
-const CARD_SELECTED = 'bg-fill border-2 border-accent text-accent-text shadow-[var(--shadow-hard-md)] cursor-default';
+const CARD_SELECTED = 'cursor-default border-[#E04F4F] bg-[#FFF8EC] text-[#A63731] shadow-[0_15px_28px_rgba(224,79,79,.24)]';
 
 export function VoteCards({
   deck, selected, onSelect, disabled,
@@ -56,40 +54,40 @@ export function VoteCards({
       ref={groupRef}
       role="radiogroup"
       aria-label="Story points"
-      className="flex flex-wrap gap-3"
+      className="pointe-card-hand flex w-full items-end overflow-x-auto px-4 pb-7 pt-5 sm:justify-center sm:overflow-visible sm:px-8"
       onKeyDown={handleKeyDown}
     >
       {deck.map((v, i) => {
         const isSel = selected === v;
-        // Roving tabIndex: selected card (or first when nothing selected) receives focus.
         const tIdx = isSel || (selected === null && i === 0) ? 0 : -1;
+        const mid = (deck.length - 1) / 2;
+        const rotation = Math.max(-14, Math.min(14, (i - mid) * 2.8));
+        const lift = Math.abs(i - mid) * 1.6;
+        const cardStyle = {
+          '--card-rotation': `${rotation}deg`,
+          '--card-lift': `${lift}px`,
+          zIndex: isSel ? deck.length + 2 : i + 1,
+        } as CSSProperties;
+
         return (
           <button
             key={v}
             type="button"
             role="radio"
             aria-checked={isSel}
+            data-selected={isSel ? 'true' : 'false'}
             data-value={v}
             tabIndex={tIdx}
             disabled={disabled}
             onClick={() => onSelect(v)}
-            className={cn(CARD_BASE, isSel ? CARD_SELECTED : CARD_DEFAULT)}
+            style={cardStyle}
+            className={cn(CARD_BASE, i > 0 && '-ml-2.5 sm:-ml-3', isSel ? CARD_SELECTED : CARD_DEFAULT)}
           >
-            {/* Top-left corner index */}
-            <span aria-hidden="true" className="absolute top-1.5 left-1.5 font-serif text-[10px] leading-none">{v}</span>
-            {/* Top-right corner: pip when selected, value otherwise */}
-            <span aria-hidden="true" className="absolute top-1.5 right-1.5 font-serif text-[10px] leading-none">
-              {isSel ? '●' : v}
-            </span>
-            {/* Center value — screen readers announce only this */}
-            <span className="absolute inset-0 flex items-center justify-center font-serif text-display leading-none">
+            <span aria-hidden="true" className="absolute left-2 top-1.5 text-[10px] font-extrabold leading-none">{v}</span>
+            <span className="absolute inset-0 flex items-center justify-center font-sans text-[1.65rem] font-extrabold leading-none sm:text-[1.85rem]">
               {v}
             </span>
-            {/* Bottom corners rotated 180° */}
-            <span aria-hidden="true" className="absolute bottom-1.5 left-1.5 font-serif text-[10px] leading-none rotate-180">{v}</span>
-            <span aria-hidden="true" className="absolute bottom-1.5 right-1.5 font-serif text-[10px] leading-none rotate-180">
-              {isSel ? '●' : v}
-            </span>
+            <span aria-hidden="true" className="absolute bottom-1.5 right-2 rotate-180 text-[10px] font-extrabold leading-none">{v}</span>
           </button>
         );
       })}
