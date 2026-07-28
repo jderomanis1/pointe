@@ -15,19 +15,6 @@ function clampConfidence(n: number): ConfidenceLevel {
   return Math.round(n) as ConfidenceLevel;
 }
 
-/**
- * The cast UI for the active story. Drops into VotingStage's reserved
- * data-slot="cast". Combines:
- *   - VoteCards: pick a deck value (subtle-accent when selected).
- *   - ConfidencePicker: 1–5 dots, pre-selected at 3.
- *   - Submit (primary accent): enabled once a card is picked → VOTE_CAST.
- *
- * Re-vote replaces — the server upserts on (storyId, voterId) while the story
- * is active. The button reflects state: "Cast estimate" → "Update vote".
- *
- * Anti-anchoring intact: this reads only `myVotes[storyId]` (the local user's
- * own value, echoed via `vote_value`). Peer values aren't in the store pre-reveal.
- */
 export function CastPanel({ story }: { story: Story }) {
   const send = useSend();
   const room = useRoomStore((s) => s.room);
@@ -38,15 +25,10 @@ export function CastPanel({ story }: { story: Story }) {
     myVote ? clampConfidence(myVote.confidence) : DEFAULT_CONFIDENCE,
   );
 
-  // Active story changed → reseed from whatever myVote says for the new story
-  // (or back to a clean pick + default confidence). Keeps re-vote-vs-fresh
-  // initialisation correct when the host advances to the next story.
-  // Intentionally keyed on story.id only: edits to myVote during this story
-  // come from our own send → we don't want to clobber the local picker mid-edit.
   useEffect(() => {
     setPoints(myVote?.points ?? null);
     setConfidence(myVote ? clampConfidence(myVote.confidence) : DEFAULT_CONFIDENCE);
-  }, [story.id]);
+  }, [story.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!room) return null;
   const deck = resolveDeck(room.deck, room.customDeck);
@@ -59,14 +41,35 @@ export function CastPanel({ story }: { story: Story }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <section aria-label="Your estimate" className="rounded-[24px] border border-hairline bg-bg/40 px-2 pb-5 pt-4 sm:px-5">
+      <div className="text-center">
+        <p className="text-meta font-extrabold uppercase tracking-[.14em] text-accent-text">Your hand</p>
+        <h2 className="mt-1 font-serif text-2xl text-text">Choose the card that feels right.</h2>
+      </div>
+
       <VoteCards deck={deck} selected={points} onSelect={setPoints} />
-      <ConfidencePicker value={confidence} onChange={setConfidence} />
-      <div>
-        <Button variant="primary" onClick={submit} disabled={!canSubmit}>
+
+      <div className="mx-auto flex max-w-2xl flex-col items-center justify-between gap-4 rounded-[18px] border border-hairline bg-surface px-4 py-4 shadow-card sm:flex-row sm:px-5">
+        <div className="text-center sm:text-left">
+          <p className="text-sm font-bold text-text">How confident are you?</p>
+          <p className="mt-0.5 text-caption text-text-secondary">Optional signal for the discussion after reveal.</p>
+        </div>
+        <ConfidencePicker value={confidence} onChange={setConfidence} />
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={!canSubmit}
+          className="w-full min-w-36 sm:w-auto"
+        >
           {label}
         </Button>
       </div>
-    </div>
+
+      {myVote ? (
+        <p className="mt-3 text-center text-caption font-bold text-success-on" role="status">
+          Your card is down. You can change it until the reveal.
+        </p>
+      ) : null}
+    </section>
   );
 }
