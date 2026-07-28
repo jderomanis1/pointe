@@ -1,97 +1,71 @@
-/* Design tokens — Paper & Press system (DESIGN_SPEC v1.2)
+/* Pointe design tokens — Warm Tabletop system
  *
- * Architecture:
- *   1) Spec tokens (--bg-canvas, --accent-vermilion, etc.) — primary DESIGN_SPEC names.
- *   2) Legacy aliases (--color-bg, --color-accent, etc.) — backward-compat bridge so
- *      components not yet reskinned continue working via the @theme inline utilities.
- *      Each reskin increment migrates its component off legacy names.
- *
- * Theme: dark-first (:root default). Light overrides on [data-theme="light"].
- * theme.ts always writes data-theme="dark"|"light" on <html>, so both selectors fire.
+ * Professional enough for a portfolio review, friendly enough to make a
+ * recurring ceremony feel lighter. Dark and light themes share the same warm
+ * paper, ink, tangerine, teal, and leaf-green visual language.
  */
 
 :root,
 [data-theme="dark"] {
-  /* ==========================================
-     SURFACES & CANVAS
-     ========================================== */
-  --bg-canvas:       #121212;   /* Dense Asphalt Charcoal */
-  --surface-base:    #1E1E1E;   /* Deep Charcoal Ink Surface */
-  --surface-raised:  #282828;   /* Elevated Cardstock / Hover Panel */
-  --surface-overlay: #303030;   /* Modal / Overlay Background */
+  /* Surfaces */
+  --bg-canvas:       #17120F;
+  --surface-base:    #211A16;
+  --surface-raised:  #2C211B;
+  --surface-overlay: #352820;
 
-  /* ==========================================
-     BORDERS & GRID RULES
-     ========================================== */
-  --border-hairline: #333333;   /* Subtle Grid Divider */
-  --border-strong:   #E2E8F0;   /* Newspaper Off-White Frame */
-  --border-focus:    #FF4500;   /* Active / Focused Highlight */
+  /* Borders */
+  --border-hairline: #49382F;
+  --border-strong:   #FFF1DE;
+  --border-focus:    #FF8A3D;
 
-  /* ==========================================
-     TYPOGRAPHY & INK
-     ========================================== */
-  --text-primary:   #ECEFF4;   /* Crisp Off-White Newsprint */
-  --text-secondary: #A1A1AA;   /* Muted Editorial Caption Gray */
-  --text-tertiary:  #929292;   /* Subdued Index (WCAG AA ≥4.74:1 on all dark surfaces) */
-  --text-inverse:   #121212;   /* Dark Ink on Light Backgrounds */
+  /* Typography */
+  --text-primary:   #FFF8EE;
+  --text-secondary: #D8C5B7;
+  --text-tertiary:  #B5A094;
+  --text-inverse:   #2A160B;
 
-  /* ==========================================
-     BRAND PRIMARY & ACCENTS
-     ========================================== */
-  --accent-vermilion:        #FF4500;
-  --accent-vermilion-hover:  #F04000;  /* v1.4: bumped from #E03E00 — too dark for dark ink (4.33:1); now 4.85:1 */
-  --accent-vermilion-subtle: rgba(255, 69, 0, 0.12);
+  /* Brand */
+  --accent-vermilion:        #FF8A3D;
+  --accent-vermilion-hover:  #FFA164;
+  --accent-vermilion-subtle: rgba(255, 138, 61, 0.14);
 
-  /* ==========================================
-     SEMANTIC INK PALETTE (Editorial Marks)
-     ========================================== */
-  --semantic-emerald:    #10B981;
-  --semantic-emerald-bg: rgba(16, 185, 129, 0.12);
-  --semantic-amber:      #D97706;
-  --semantic-amber-bg:   rgba(217, 119, 6, 0.12);
-  --semantic-crimson:    #DC2626;
-  --semantic-crimson-bg: rgba(220, 38, 38, 0.12);
+  /* Semantic colors */
+  --semantic-emerald:    #55CF80;
+  --semantic-emerald-bg: rgba(85, 207, 128, 0.13);
+  --semantic-amber:      #F6B94C;
+  --semantic-amber-bg:   rgba(246, 185, 76, 0.13);
+  --semantic-crimson:    #FF7A73;
+  --semantic-crimson-bg: rgba(255, 122, 115, 0.13);
 
-  /* ==========================================
-     FOCUS & ACCESSIBILITY
-     ========================================== */
-  --focus-ring-outline: 2px solid var(--border-focus);
-  --focus-ring-offset:  2px;
+  /* Accessibility */
+  --focus-ring-outline: 3px solid var(--border-focus);
+  --focus-ring-offset:  3px;
 
-  /* ==========================================
-     GRAIN TEXTURE (Newsprint / Asphalt — added to body in 1b)
-     ========================================== */
-  --bg-grain-uri: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.035'/%3E%3C/svg%3E");
+  /* Subtle paper grain */
+  --bg-grain-uri: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E");
 
-  /* ==========================================
-     TYPOGRAPHY
-     ========================================== */
+  /* Typography */
   --font-display: 'Instrument Serif', Georgia, serif;
   --font-body:    'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 
-  /* Type scale */
-  --text-xs:   0.75rem;   /* 12px — Labels, Metadata, Table Headers */
-  --text-sm:   0.875rem;  /* 14px — Body Secondary, Inputs, Tooltips */
-  --text-base: 1rem;      /* 16px — Standard UI Body Text */
-  --text-lg:   1.25rem;   /* 20px — Subheadings, Deck Titles */
-  --text-xl:   1.75rem;   /* 28px — Section Headers */
-  --text-2xl:  3.5rem;    /* 56px — Large Estimate Values */
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.25rem;
+  --text-xl:   1.75rem;
+  --text-2xl:  3.5rem;
 
-  /* Line heights */
   --lh-tight:  1.05;
   --lh-snug:   1.25;
   --lh-normal: 1.50;
 
-  /* Letter spacing */
   --tracking-tight:  -0.02em;
   --tracking-normal:  0em;
   --tracking-wide:    0.08em;
   --tracking-caps:    0.12em;
 
-  /* ==========================================
-     SPACING (4px grid)
-     ========================================== */
+  /* Spacing */
   --space-1:  4px;
   --space-2:  8px;
   --space-3:  12px;
@@ -101,146 +75,123 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* ==========================================
-     RADII (Brutalist — max 2px)
-     ========================================== */
+  /* Rounded, tactile controls */
   --radius-none:  0px;
-  --radius-sharp: 2px;   /* Maximum allowed system-wide */
+  --radius-sharp: 8px;
+  --radius-soft:  12px;
+  --radius-card:  18px;
+  --radius-round: 999px;
 
-  /* ==========================================
-     SHADOWS (Hard Offset — No Blur)
-     ========================================== */
-  --shadow-hard-sm: 2px 2px 0px #000000;
-  --shadow-hard-md: 4px 4px 0px #000000;
-  --shadow-hard-lg: 6px 6px 0px #000000;
-  --shadow-stamp:   0px 0px 0px 2px var(--semantic-emerald), 4px 4px 0px #000000;
+  /* Soft tabletop elevation */
+  --shadow-hard-sm: 0 4px 12px rgba(0, 0, 0, 0.22);
+  --shadow-hard-md: 0 12px 34px rgba(0, 0, 0, 0.28);
+  --shadow-hard-lg: 0 22px 64px rgba(0, 0, 0, 0.32);
+  --shadow-stamp:   0 0 0 2px var(--semantic-emerald), 0 10px 24px rgba(0, 0, 0, 0.28);
 
-  /* ==========================================
-     TIMING & EASING (Mechanical — No Spring)
-     ========================================== */
-  --ease-mechanical: cubic-bezier(0, 0, 0.2, 1);
+  /* Motion */
+  --ease-mechanical: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-snap:       cubic-bezier(0.1, 0.9, 0.2, 1);
-  --duration-fast:   80ms;
-  --duration-normal: 150ms;
-  --duration-tumble: 300ms;
+  --duration-fast:   100ms;
+  --duration-normal: 180ms;
+  --duration-tumble: 320ms;
 
-  /* ==========================================
-     LEGACY ALIASES
-     Components not yet reskinned consume these
-     via the @theme inline bridge in index.css.
-     Remove each alias when its increment lands.
-     ========================================== */
-
-  /* Surfaces */
+  /* Semantic aliases consumed by Tailwind utilities and existing components */
   --color-bg:      var(--bg-canvas);
   --color-surface: var(--surface-base);
   --color-sunken:  var(--bg-canvas);
   --color-fill:    var(--surface-raised);
 
-  /* Typography */
   --color-text:           var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted:     var(--text-tertiary);
   --color-text-disabled:  var(--text-tertiary);
 
-  /* Borders */
   --color-hairline: var(--border-hairline);
 
-  /* Accent */
   --color-accent:        var(--accent-vermilion);
-  --color-accent-ink:    #121212;              /* Dark ink on dark-mode vermilion (5.44:1/4.85:1 hover) */
+  --color-accent-ink:    #2A160B;
   --color-accent-hover:  var(--accent-vermilion-hover);
   --color-accent-active: var(--accent-vermilion-hover);
   --color-accent-tint:   var(--accent-vermilion-subtle);
-  --color-accent-on:     #FF7000;              /* Text on accent-tint (5.30:1/4.73:1 dk) */
-  --color-accent-text:   #FF5800;              /* Readable text on solid surfaces (5.28:1 surface-base / 4.67:1 surface-raised dk) */
+  --color-accent-on:     #FFB27F;
+  --color-accent-text:   #FFB27F;
 
-  /* Gold → amber (nearest equivalent; used only by non-reskin features) */
   --color-gold: var(--semantic-amber);
 
-  /* Semantic */
   --color-success:         var(--semantic-emerald);
   --color-success-surface: var(--semantic-emerald-bg);
-  --color-success-on:      var(--semantic-emerald);
+  --color-success-on:      #7FE8A1;
   --color-warning:         var(--semantic-amber);
   --color-warning-surface: var(--semantic-amber-bg);
-  --color-warning-on:      #F59E0B;              /* Text on warning-surface (6.61:1/5.88:1 dk) */
+  --color-warning-on:      #FFD783;
   --color-error:           var(--semantic-crimson);
   --color-error-surface:   var(--semantic-crimson-bg);
-  --color-error-on:        #F87171;              /* Text on error-surface (5.55:1/4.93:1 dk) */
+  --color-error-on:        #FFAAA5;
 
-  /* Fonts */
   --font-sans:  var(--font-body);
   --font-serif: var(--font-display);
 
-  /* Type scale (values shift to match spec; see notes below each) */
-  --text-display:  var(--text-2xl);   /* 56px (was 40px) */
-  --text-heading:  var(--text-xl);    /* 28px (was 24px) */
-  --text-subhead:  var(--text-lg);    /* 20px (was 18px) */
-  --text-body:     var(--text-base);  /* 16px */
-  --text-meta:     var(--text-xs);    /* 12px (was 13px) */
-  --text-small:    var(--text-sm);    /* 14px */
-  --text-caption:  var(--text-xs);    /* 12px */
-  --text-micro:    var(--text-xs);    /* 12px */
-  --text-num:      var(--text-lg);    /* 20px */
-  --text-num-hero: var(--text-2xl);   /* 56px (was 44px) */
+  --text-display:  var(--text-2xl);
+  --text-heading:  var(--text-xl);
+  --text-subhead:  var(--text-lg);
+  --text-body:     var(--text-base);
+  --text-meta:     var(--text-xs);
+  --text-small:    var(--text-sm);
+  --text-caption:  var(--text-xs);
+  --text-micro:    var(--text-xs);
+  --text-num:      var(--text-lg);
+  --text-num-hero: var(--text-2xl);
 
-  /* Line heights / tracking */
   --tracking-caption: var(--tracking-wide);
   --leading-tight:    var(--lh-tight);
   --leading-body:     var(--lh-normal);
 
-  /* Radii — all collapse to 2px per spec */
   --radius-sm:   var(--radius-sharp);
-  --radius-md:   var(--radius-sharp);
-  --radius-lg:   var(--radius-sharp);
-  --radius-pill: var(--radius-sharp);
+  --radius-md:   var(--radius-soft);
+  --radius-lg:   var(--radius-card);
+  --radius-pill: var(--radius-round);
 
-  /* Shadows — blurred replaced by hard offset */
   --shadow-card: var(--shadow-hard-sm);
   --shadow-pop:  var(--shadow-hard-md);
 
-  /* Durations */
   --duration-base: var(--duration-normal);
 }
 
-/* ==========================================
-   LIGHT MODE OVERRIDES
-   ========================================== */
 [data-theme="light"] {
-  --bg-canvas:       #EAE6DF;   /* Warm Newsprint Off-White Paper */
-  --surface-base:    #F4F1EA;   /* Clean Cardstock Sheet */
+  --bg-canvas:       #FFF6E8;
+  --surface-base:    #FFFDF7;
   --surface-raised:  #FFFFFF;
   --surface-overlay: #FFFFFF;
 
-  --border-hairline: #D1CCC2;   /* Muted Pencil Guide Line */
-  --border-strong:   #121212;   /* Hard Black Print Rule */
-  --border-focus:    #D03800;   /* Light-mode vermilion for contrast */
+  --border-hairline: #E7D4BB;
+  --border-strong:   #4B3529;
+  --border-focus:    #B94700;
 
-  --text-primary:   #121212;
-  --text-secondary: #52525B;
-  --text-tertiary:  #5E5A54;    /* WCAG AA ~5:1 on light canvas */
-  --text-inverse:   #ECEFF4;
+  --text-primary:   #3F2E26;
+  --text-secondary: #6F584B;
+  --text-tertiary:  #7A6255;
+  --text-inverse:   #FFF8EE;
 
-  --accent-vermilion:        #D03800;
-  --accent-vermilion-hover:  #B02F00;
-  --color-accent-ink:        #FFFFFF;              /* White ink on light-mode vermilion (4.94:1/6.46:1 hover) */
-  --color-accent-text:       #B02F00;              /* Readable text on solid surfaces (5.73:1 surface-base / 5.19:1 canvas lt) */
-  --accent-vermilion-subtle: rgba(208, 56, 0, 0.08);
+  --accent-vermilion:        #B94700;
+  --accent-vermilion-hover:  #9F3B00;
+  --accent-vermilion-subtle: rgba(185, 71, 0, 0.09);
 
-  --semantic-emerald:    #059669;
-  --semantic-emerald-bg: rgba(5, 150, 105, 0.10);
-  --color-success-on:    #064E3B;
-  --semantic-amber:      #B45309;
-  --semantic-amber-bg:   rgba(180, 83, 9, 0.10);
-  --semantic-crimson:    #B91C1C;
-  --semantic-crimson-bg: rgba(185, 28, 28, 0.10);
-  --color-accent-on:     #B02F00;              /* Text on accent-tint (5.10:1/4.65:1 lt) */
-  --color-warning-on:    #92400E;              /* Text on warning-surface (5.52:1/5.03:1 lt) */
-  --color-error-on:      #991B1B;              /* Text on error-surface (6.27:1/5.71:1 lt) */
+  --semantic-emerald:    #157A46;
+  --semantic-emerald-bg: rgba(21, 122, 70, 0.10);
+  --semantic-amber:      #9A6200;
+  --semantic-amber-bg:   rgba(154, 98, 0, 0.10);
+  --semantic-crimson:    #A63731;
+  --semantic-crimson-bg: rgba(166, 55, 49, 0.09);
 
-  --shadow-hard-sm: 2px 2px 0px #121212;
-  --shadow-hard-md: 4px 4px 0px #121212;
-  --shadow-hard-lg: 6px 6px 0px #121212;
-  --shadow-stamp:   0px 0px 0px 2px var(--semantic-emerald), 4px 4px 0px #121212;
+  --color-accent-ink:  #FFFFFF;
+  --color-accent-text: #9F3B00;
+  --color-accent-on:   #9F3B00;
+  --color-success-on:  #0E6137;
+  --color-warning-on:  #754800;
+  --color-error-on:    #872A26;
+
+  --shadow-hard-sm: 0 4px 14px rgba(102, 61, 29, 0.10);
+  --shadow-hard-md: 0 14px 38px rgba(102, 61, 29, 0.14);
+  --shadow-hard-lg: 0 24px 72px rgba(102, 61, 29, 0.17);
+  --shadow-stamp:   0 0 0 2px var(--semantic-emerald), 0 12px 28px rgba(102, 61, 29, 0.14);
 }
