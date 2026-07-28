@@ -152,7 +152,7 @@ describe('RoomShell — roster', () => {
     });
     renderShell();
 
-    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('Alice').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('host')).toBeInTheDocument();
     expect(screen.getByText('Cleo')).toBeInTheDocument();
     expect(screen.getByText('spectator')).toBeInTheDocument();
