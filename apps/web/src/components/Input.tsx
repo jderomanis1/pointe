@@ -8,28 +8,20 @@ export type InputProps = {
   helper?: string;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id'>;
 
-// --ease-mechanical for border/bg transitions; no spring, no blur.
-const TRANS = '[transition:border-color_80ms_cubic-bezier(0,0,0.2,1),background-color_80ms_cubic-bezier(0,0,0.2,1)]';
+const TRANS = '[transition:border-color_120ms_cubic-bezier(0.2,0.8,0.2,1),background-color_120ms_cubic-bezier(0.2,0.8,0.2,1),box-shadow_120ms_cubic-bezier(0.2,0.8,0.2,1)]';
 
 const FIELD_BASE = cn(
   'w-full bg-bg text-text',
-  'border border-[var(--border-strong)] rounded-[2px]',
-  'px-[14px] py-[10px] text-body font-sans',
-  'placeholder:text-text-muted placeholder:italic',
+  'border border-hairline rounded-[14px]',
+  'px-4 py-3 text-body font-sans shadow-[inset_0_1px_0_rgba(255,255,255,.04)]',
+  'placeholder:text-text-muted',
   TRANS,
-  // Section 6 focus: outline at 0px offset so it hugs the border; bg lifts to surface.
-  'focus-visible:[outline:var(--focus-ring-outline)] focus-visible:[outline-offset:0px] focus-visible:bg-surface',
+  'focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:bg-surface',
   'disabled:bg-surface disabled:text-text-muted disabled:border-hairline disabled:cursor-not-allowed',
 );
 
-// Applied only in non-error state — avoids hover:border-text conflicting with error border.
-const NORMAL_HOVER = 'hover:border-text';
-
-// 2px crimson border + crimson-tinted bg; hover stays error color.
-const ERROR_FIELD = cn(
-  'border-2 border-error bg-error-surface',
-  'hover:border-error',
-);
+const NORMAL_HOVER = 'hover:border-text-muted';
+const ERROR_FIELD = 'border-2 border-error bg-error-surface hover:border-error';
 
 export function Input({
   id, label, error, helper, type = 'text', className, ...rest
@@ -42,7 +34,7 @@ export function Input({
       {label ? (
         <label
           htmlFor={id}
-          className="mb-1.5 font-mono text-meta uppercase tracking-[0.12em] text-text-secondary"
+          className="mb-2 text-meta font-bold uppercase tracking-[0.1em] text-text-secondary"
         >
           {label}
         </label>
@@ -56,9 +48,9 @@ export function Input({
         {...rest}
       />
       {error ? (
-        <p id={errorId} className="mt-1.5 font-mono text-caption text-error">{error}</p>
+        <p id={errorId} className="mt-1.5 text-caption font-semibold text-error-on">{error}</p>
       ) : helper ? (
-        <p id={helperId} className="mt-1 text-caption text-text-muted font-sans">{helper}</p>
+        <p id={helperId} className="mt-1.5 text-caption text-text-muted">{helper}</p>
       ) : null}
     </div>
   );

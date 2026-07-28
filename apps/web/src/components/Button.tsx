@@ -12,54 +12,44 @@ export type ButtonProps = {
   children: ReactNode;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'>;
 
-// --ease-snap micro-interaction timing, declared explicitly since Tailwind's
-// default easing doesn't match the spec's cubic-bezier(0.1, 0.9, 0.2, 1).
-const TRANS = '[transition:transform_80ms_cubic-bezier(0.1,0.9,0.2,1),box-shadow_80ms_cubic-bezier(0.1,0.9,0.2,1),background-color_80ms_cubic-bezier(0.1,0.9,0.2,1),border-color_80ms_cubic-bezier(0.1,0.9,0.2,1),color_80ms_cubic-bezier(0.1,0.9,0.2,1),opacity_80ms_cubic-bezier(0.1,0.9,0.2,1)]';
+const TRANS = '[transition:transform_120ms_cubic-bezier(0.2,0.8,0.2,1),box-shadow_120ms_cubic-bezier(0.2,0.8,0.2,1),background-color_120ms_cubic-bezier(0.2,0.8,0.2,1),border-color_120ms_cubic-bezier(0.2,0.8,0.2,1),color_120ms_cubic-bezier(0.2,0.8,0.2,1),opacity_120ms_cubic-bezier(0.2,0.8,0.2,1)]';
 
 const VARIANT: Record<ButtonVariant, string> = {
-  // Section 3.4 — high-priority actions (EXECUTE REVEAL, CREATE SESSION)
   primary: cn(
     'bg-accent text-accent-ink border border-accent font-bold',
     'shadow-[var(--shadow-hard-sm)]',
-    'hover:bg-accent-hover hover:-translate-x-px hover:-translate-y-px hover:shadow-[var(--shadow-hard-md)]',
-    'active:bg-accent-hover active:translate-x-px active:translate-y-px active:shadow-none',
-    'disabled:bg-fill disabled:text-[var(--text-tertiary)] disabled:border-hairline disabled:shadow-none disabled:opacity-60',
+    'hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[var(--shadow-hard-md)]',
+    'active:translate-y-0 active:shadow-[var(--shadow-hard-sm)]',
+    'disabled:bg-fill disabled:text-text-muted disabled:border-hairline disabled:shadow-none disabled:opacity-60',
   ),
-  // Section 3.5 — structural actions (COPY INVITE LINK, TOGGLE OBSERVER)
   secondary: cn(
     'bg-surface text-text border border-[var(--border-strong)] font-semibold',
     'shadow-[var(--shadow-hard-sm)]',
-    'hover:bg-fill hover:-translate-x-px hover:-translate-y-px hover:shadow-[var(--shadow-hard-md)]',
-    'active:translate-x-px active:translate-y-px active:shadow-none',
-    'disabled:bg-surface disabled:text-[var(--text-tertiary)] disabled:border-hairline disabled:shadow-none disabled:opacity-50',
+    'hover:bg-fill hover:-translate-y-0.5 hover:shadow-[var(--shadow-hard-md)]',
+    'active:translate-y-0 active:shadow-[var(--shadow-hard-sm)]',
+    'disabled:bg-surface disabled:text-text-muted disabled:border-hairline disabled:shadow-none disabled:opacity-50',
   ),
-  // Section 3.6 — low-emphasis actions (LEAVE SESSION, TOGGLE THEME)
   ghost: cn(
     'bg-transparent text-text-secondary border border-transparent',
     'hover:text-text hover:border-hairline hover:bg-fill',
-    'active:bg-surface active:text-accent',
-    'disabled:text-[var(--text-tertiary)] disabled:opacity-40',
+    'active:bg-surface active:text-accent-text',
+    'disabled:text-text-muted disabled:opacity-40',
   ),
 };
 
 const SIZE: Record<ButtonSize, string> = {
-  sm: 'text-meta px-3 py-1.5',
-  md: 'text-body px-4 py-2',
-  lg: 'text-subhead px-5 py-2.5',
+  sm: 'min-h-9 text-meta px-3 py-1.5',
+  md: 'min-h-11 text-body px-5 py-2.5',
+  lg: 'min-h-12 text-subhead px-6 py-3',
 };
 
 const BASE = cn(
-  'inline-flex items-center justify-center gap-2',
-  'rounded-[2px] font-mono uppercase tracking-[0.08em]',
+  'inline-flex items-center justify-center gap-2 rounded-full font-sans tracking-[-0.01em]',
   TRANS,
   'disabled:cursor-not-allowed',
-  // Section 6 focus-visible: outline ring, no box-shadow ring.
-  // [outline-offset] inherits the 2px spec value; ghost overrides to 0px inline.
-  'focus-visible:[outline:2px_solid_var(--border-focus)] focus-visible:[outline-offset:2px]',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
 );
 
-// `forwardRef` so callers can ref the underlying <button> (CommitPanel focus
-// management after reveal).
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = 'primary',

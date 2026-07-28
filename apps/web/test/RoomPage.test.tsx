@@ -36,7 +36,7 @@ describe('RoomPage — fresh visit (no router state)', () => {
   it('GET 404 → RoomNotFound', async () => {
     globalThis.fetch = mockFetchOk({ code: 'SLUG_NOT_FOUND', message: 'Room not found' }, 404);
     render(<MemoryRouter><RoomPage slug={SLUG} /></MemoryRouter>);
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'No room here' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'No table is open here.' })).toBeInTheDocument());
   });
 
   it('sync room: no async framing rendered above the join form', async () => {
@@ -58,7 +58,6 @@ describe('RoomPage — S9.ii.c4 async pre-join framing', () => {
     });
     expect(screen.getByText(/Async voting/)).toBeInTheDocument();
     expect(screen.getByTestId('join-countdown').textContent).toMatch(/4h 0m|3h 59m/);
-    // Join form still present beneath the framing.
     expect(screen.getByRole('button', { name: 'Join' })).toBeInTheDocument();
   });
 
