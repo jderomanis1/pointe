@@ -91,7 +91,13 @@ export function ParticipantRoster({ storyId }: { storyId: string }) {
         <div className="flex flex-wrap items-center justify-center gap-2 text-caption text-text-secondary">
           <span className="font-bold">Watching:</span>
           {spectators.map((v) => (
-            <span key={v.id} className="rounded-full border border-hairline bg-fill px-3 py-1 font-semibold">
+            <span
+              key={v.id}
+              data-testid={`seat-${v.id}`}
+              data-voted="false"
+              className="rounded-full border border-hairline bg-fill px-3 py-1 font-semibold"
+            >
+              <span className="sr-only">[OBS]</span>
               {v.displayName}
             </span>
           ))}
