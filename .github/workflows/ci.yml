@@ -54,7 +54,7 @@ jobs:
         if: steps.web-tests.outputs.exit_code != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DIAGNOSTIC_COMMENT_ID: '5107778068'
         shell: bash
         run: |
           sed -E $'s/\x1B\[[0-9;]*[mK]//g' /tmp/pointe-web-tests.log > /tmp/pointe-web-tests-clean.log
@@ -62,8 +62,9 @@ jobs:
             echo '### Temporary CI diagnostic'
             echo
             echo '```text'
-            grep -E -B 3 -A 6 'FAIL|Failed Tests|TestingLibraryElementError|Unable to find|Found multiple|AssertionError|expected|apps/web/test/|Test Files|Tests ' /tmp/pointe-web-tests-clean.log | tail -n 140
+            grep -E '^( FAIL| ×| ❯ (test|src)/| Test Files| Tests|TestingLibraryElementError:|AssertionError:|Error: (Unable|Found)|expected )' /tmp/pointe-web-tests-clean.log | tail -n 120
             echo '```'
           } > /tmp/pointe-web-tests-comment.md
-          gh pr comment "$PR_NUMBER" --body-file /tmp/pointe-web-tests-comment.md
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${DIAGNOSTIC_COMMENT_ID}" \
+            -f body="$(cat /tmp/pointe-web-tests-comment.md)" > /dev/null
           exit 1
