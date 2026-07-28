@@ -90,7 +90,7 @@ export function VotingStage({ story }: { story: Story }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={isRevealed ? 'success' : 'accent'}>
-                {isRevealed ? 'Cards revealed' : 'Voting now'}
+                {isRevealed ? 'Cards revealed' : 'voting open'}
               </Badge>
               <StoryExternalRef story={story} />
               {story.edited ? <Badge variant="neutral">edited</Badge> : null}
