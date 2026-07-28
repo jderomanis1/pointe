@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Check, Link2, Wifi, WifiOff } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useRoomStore } from '../../store/roomStore';
 import { Badge } from '../Badge';
 import { Roster } from './Roster';
@@ -15,21 +17,70 @@ import { AsyncHostMonitorView } from './AsyncHostMonitorView';
 import { ReviewHostScreen } from './ReviewHostScreen';
 import { ReviewVoterScreen } from './ReviewVoterScreen';
 
-function StatusBadge() {
+function ConnectionStatus() {
   const status = useRoomStore((s) => s.connection);
-  if (status === 'connected') return <Badge variant="success">Connected</Badge>;
-  if (status === 'connecting') return <Badge variant="neutral">Connecting</Badge>;
-  if (status === 'reconnecting') return <Badge variant="warning">Reconnecting</Badge>;
-  return <Badge variant="error">Disconnected</Badge>;
+  const connected = status === 'connected';
+  const reconnecting = status === 'connecting' || status === 'reconnecting';
+  const label = connected ? 'Live' : reconnecting ? 'Reconnecting' : 'Offline';
+
+  return (
+    <span
+      className={connected
+        ? 'inline-flex items-center gap-2 rounded-full bg-success-surface px-3 py-1.5 text-caption font-bold text-success-on'
+        : reconnecting
+          ? 'inline-flex items-center gap-2 rounded-full bg-warning-surface px-3 py-1.5 text-caption font-bold text-warning-on'
+          : 'inline-flex items-center gap-2 rounded-full bg-error-surface px-3 py-1.5 text-caption font-bold text-error-on'}
+      aria-label={`Connection ${label}`}
+    >
+      {connected ? <Wifi size={14} aria-hidden="true" /> : <WifiOff size={14} aria-hidden="true" />}
+      {label}
+    </span>
+  );
+}
+
+function BrandMark() {
+  return (
+    <span className="relative block h-10 w-11 shrink-0" aria-hidden="true">
+      <span className="absolute left-1 top-1 h-8 w-6 -rotate-6 rounded-[8px] border-2 border-text bg-surface" />
+      <span className="absolute right-0 top-0 grid h-9 w-7 rotate-6 place-items-center rounded-[8px] border-2 border-text bg-accent text-sm font-black text-accent-ink shadow-card">
+        5
+      </span>
+    </span>
+  );
+}
+
+function InviteButton({ slug }: { slug: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyInvite() {
+    const url = `${window.location.origin}/${slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      window.prompt('Copy this room link', url);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copyInvite}
+      className="inline-flex min-h-10 items-center gap-2 rounded-full border border-hairline bg-surface px-4 text-sm font-bold text-text shadow-card transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      {copied ? <Check size={16} aria-hidden="true" /> : <Link2 size={16} aria-hidden="true" />}
+      <span className="hidden sm:inline">{copied ? 'Link copied' : 'Invite the team'}</span>
+      <span className="sm:hidden">{copied ? 'Copied' : 'Invite'}</span>
+    </button>
+  );
 }
 
 export function RoomShell({
   slug, addStorySlot, persistentAddStorySlot,
 }: {
   slug: string;
-  /** EmptyState's primary CTA — host's add-story control (Phase 2). */
   addStorySlot?: ReactNode;
-  /** When the queue is populated, the host's persistent add affordance. */
   persistentAddStorySlot?: ReactNode;
 }) {
   const room = useRoomStore((s) => s.room);
@@ -39,90 +90,111 @@ export function RoomShell({
   const isHost = me?.voterId !== undefined
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
-  // The stage holds focus while a story is being voted on OR has just been revealed.
-  // R5.v's COMMIT_STORY moves a revealed story to 'committed' → the queue takes over again.
   const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
 
-  // S9.ii.c3 / c4 — branch the room render while an async window is open.
   const asyncWindowOpen = room?.mode === 'async'
     && room.asyncWindow !== undefined
     && room.state === 'active';
   const showAsyncVoterView = asyncWindowOpen
     && !isHost
     && me?.role !== 'spectator';
-  // c4: host monitoring view (countdown + share + per-story voted counts,
-  // never values). Spectators fall through to the normal flow.
   const showAsyncHostView = asyncWindowOpen && isHost;
-  // S9.iii — review screens mount when the room is in `review` (post async
-  // close, pre any live re-vote). When the host fires OPEN_DISCUSSION,
-  // room flips → 'active' (via room_state_changed) and a story flips to
-  // 'active', so the existing VotingStage branch takes over for both roles.
-  // COMMIT_STORY's return-to-review (active → review) routes back here.
   const showReview = room?.state === 'review' && me?.role !== 'spectator';
   const showReviewHost = showReview && isHost;
   const showReviewVoter = showReview && !isHost;
+  const isFocusedExperience = Boolean(
+    showAsyncVoterView || showAsyncHostView || showReviewHost || showReviewVoter || focusStory,
+  );
 
   return (
-    <main className="bg-bg text-text min-h-screen font-sans">
-      <header className="border-b border-hairline">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 flex items-center gap-3 flex-wrap">
-          <span className="font-mono text-subhead text-text">{slug}</span>
-          {room ? <Badge variant="neutral">{room.deck}</Badge> : null}
-          <div className="ml-auto flex items-center gap-3">
-            <StatusBadge />
+    <main className="relative min-h-screen overflow-x-hidden bg-bg text-text font-sans">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 top-0 h-[620px] opacity-80"
+        style={{
+          background:
+            'radial-gradient(circle at 8% 8%, rgba(255,138,61,.18), transparent 32%), radial-gradient(circle at 90% 10%, rgba(46,158,143,.14), transparent 30%)',
+        }}
+      />
+
+      <header className="sticky top-0 z-30 border-b border-hairline bg-bg/90 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+          <Link to="/" className="inline-flex min-w-0 items-center gap-3" aria-label="Pointe home">
+            <BrandMark />
+            <span className="min-w-0">
+              <span className="block font-serif text-2xl leading-none tracking-[-.03em]">Pointe</span>
+              <span className="mt-1 block truncate text-[10px] font-bold uppercase tracking-[.15em] text-text-muted">
+                Room {slug}
+              </span>
+            </span>
+          </Link>
+
+          <div className="ml-auto flex items-center gap-2">
+            <ConnectionStatus />
+            <InviteButton slug={slug} />
             <ThemeToggle />
           </div>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8 grid gap-6 md:grid-cols-[260px_1fr]">
-        <Roster />
-        <div className="flex flex-col gap-6">
-          {/* Room-level advisory + transient notice; both can coexist with the
-              per-client connection status badge in the header. */}
-          <HostVacantBanner />
-          <ReplacedNotice />
-          {showAsyncVoterView && room ? (
-            <AsyncVoterView room={room} />
-          ) : showAsyncHostView && room ? (
-            <AsyncHostMonitorView room={room} slug={slug} />
-          ) : showReviewHost ? (
-            <ReviewHostScreen />
-          ) : showReviewVoter ? (
-            <ReviewVoterScreen />
-          ) : stories.length === 0 ? (
-            <EmptyState
-              slug={slug}
-              deck={room?.deck ?? 'fibonacci'}
-              customDeck={room?.customDeck}
-              isHost={isHost}
-              addStorySlot={addStorySlot}
-            />
-          ) : focusStory ? (
-            <>
-              <VotingStage story={focusStory} />
-              <StoryQueue />
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
+        <HostVacantBanner />
+        <ReplacedNotice />
+
+        {!isFocusedExperience ? <Roster /> : null}
+
+        {showAsyncVoterView && room ? (
+          <AsyncVoterView room={room} />
+        ) : showAsyncHostView && room ? (
+          <AsyncHostMonitorView room={room} slug={slug} />
+        ) : showReviewHost ? (
+          <ReviewHostScreen />
+        ) : showReviewVoter ? (
+          <ReviewVoterScreen />
+        ) : stories.length === 0 ? (
+          <EmptyState
+            slug={slug}
+            deck={room?.deck ?? 'fibonacci'}
+            customDeck={room?.customDeck}
+            isHost={isHost}
+            addStorySlot={addStorySlot}
+          />
+        ) : focusStory ? (
+          <>
+            <VotingStage story={focusStory} />
+            <details className="group rounded-[22px] border border-hairline bg-surface/85 shadow-card">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 font-bold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                <span>Session stories</span>
+                <span className="text-caption font-semibold text-text-secondary group-open:hidden">Show queue</span>
+                <span className="hidden text-caption font-semibold text-text-secondary group-open:inline">Hide queue</span>
+              </summary>
+              <div className="border-t border-hairline p-4 sm:p-5">
+                <StoryQueue />
+                {isHost && persistentAddStorySlot ? <div className="mt-5">{persistentAddStorySlot}</div> : null}
+              </div>
+            </details>
+          </>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+            <section className="rounded-[26px] border border-hairline bg-surface/90 p-4 shadow-pop sm:p-6">
               {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
-            </>
-          ) : (
-            <>
-              {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
-              {/* S9.ii.c2 — host-only async-window setup affordance. Self-gates
-                  on mode + asyncWindow + stories.length; renders nothing for
-                  sync rooms or once a window is open. */}
-              <AsyncOpenPanel />
-              <StoryQueue />
-              {isHost ? (
-                <div className="mt-2">
-                  <ShareLink slug={slug} />
-                  <p className="text-text-muted text-caption mt-2">
-                    Voters: paste this link to invite teammates.
-                  </p>
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
+              <div className={isHost && persistentAddStorySlot ? 'mt-6' : ''}>
+                <AsyncOpenPanel />
+                <StoryQueue />
+              </div>
+            </section>
+            <aside className="flex flex-col gap-4 rounded-[24px] border border-hairline bg-surface/90 p-5 shadow-card">
+              <div>
+                <p className="text-meta font-bold uppercase tracking-[.12em] text-accent-text">Bring the team in</p>
+                <p className="mt-2 text-sm leading-6 text-text-secondary">
+                  Share one link. No accounts or setup required.
+                </p>
+              </div>
+              {isHost ? <ShareLink slug={slug} /> : null}
+              <Badge variant="neutral">{room?.deck ?? 'fibonacci'} deck</Badge>
+            </aside>
+          </div>
+        )}
       </div>
     </main>
   );
