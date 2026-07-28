@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, MessageCircleMore, RotateCcw } from 'lucide-react';
 import type { Story } from '@pointe/shared';
 import { resolveDeck } from '@pointe/shared';
 import { useRoomStore } from '../../store/roomStore';
+import { isAutoRoundText } from '../../lib/rounds';
 import { Badge } from '../Badge';
 import { Button } from '../Button';
 import { VoterSeats } from './VoterSeats';
@@ -31,6 +33,7 @@ export function VotingStage({ story }: { story: Story }) {
   const isHost = me?.voterId !== undefined
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
+  const isAutoRound = isAutoRoundText(story.text);
 
   const reveal = useRoomStore((s) => s.revealed[story.id]);
   const prevState = useRef<Story['state']>(story.state);
@@ -44,13 +47,13 @@ export function VotingStage({ story }: { story: Story }) {
       const t1 = setTimeout(() => setAnimateReveal(false), 1000);
       const t2 = setTimeout(() => {
         const votes = reveal?.votes ?? [];
-        const numVals = votes.map((v) => parseFloat(v.points)).filter((n) => !isNaN(n) && isFinite(n));
+        const numVals = votes.map((vote) => parseFloat(vote.points)).filter((n) => !isNaN(n) && isFinite(n));
         const avg = numVals.length > 0
           ? (numVals.reduce((a, b) => a + b, 0) / numVals.length).toFixed(1)
           : null;
-        const allSame = votes.length > 0 && votes.every((v) => v.points === votes[0].points);
+        const allSame = votes.length > 0 && votes.every((vote) => vote.points === votes[0].points);
         const deck = room ? resolveDeck(room.deck, room.customDeck) : [];
-        const positions = votes.map((v) => deck.indexOf(v.points)).filter((i) => i !== -1);
+        const positions = votes.map((vote) => deck.indexOf(vote.points)).filter((i) => i !== -1);
         const spread = positions.length >= 2
           ? Math.max(...positions) - Math.min(...positions) >= 2 : false;
         let text = 'Votes revealed.';
@@ -70,8 +73,8 @@ export function VotingStage({ story }: { story: Story }) {
   }, [story.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRevealed = story.state === 'revealed' || story.state === 'committed';
-  const seated = Object.values(voters).filter((v) => v.connectionState !== 'left' && v.role !== 'spectator');
-  const votedCount = seated.filter((v) => v.id === me?.voterId ? Boolean(myVote) : Boolean(presence?.has(v.id))).length;
+  const seated = Object.values(voters).filter((voter) => voter.connectionState !== 'left' && voter.role !== 'spectator');
+  const votedCount = seated.filter((voter) => voter.id === me?.voterId ? Boolean(myVote) : Boolean(presence?.has(voter.id))).length;
   const everyoneIn = seated.length > 0 && votedCount === seated.length;
 
   return (
@@ -92,22 +95,46 @@ export function VotingStage({ story }: { story: Story }) {
               <Badge variant={isRevealed ? 'success' : 'accent'}>
                 {isRevealed ? 'Cards revealed' : 'voting open'}
               </Badge>
-              <StoryExternalRef story={story} />
-              {story.edited ? <Badge variant="neutral">edited</Badge> : null}
+              {isAutoRound ? (
+                <span className="text-caption font-semibold text-text-secondary">
+                  {isRevealed ? 'Discuss, decide, and close when ready' : 'Everyone can vote now'}
+                </span>
+              ) : (
+                <>
+                  <StoryExternalRef story={story} />
+                  {story.edited ? <Badge variant="neutral">edited</Badge> : null}
+                </>
+              )}
             </div>
-            <h1 className="mt-3 max-w-4xl font-serif text-[clamp(2rem,5vw,3.7rem)] leading-[.98] tracking-[-.035em] text-text break-words">
-              <LongText text={story.text} expandLabel="Show full title" collapseLabel="Show less" />
-            </h1>
-            {story.description ? (
-              <p className="mt-3 max-w-3xl text-body leading-7 text-text-secondary">
-                <LongText text={story.description} />
-              </p>
-            ) : null}
+
+            {isAutoRound ? (
+              <>
+                <h1 className="mt-3 text-[clamp(2rem,5vw,3.5rem)] font-extrabold leading-[1.02] tracking-[-.045em] text-text">
+                  {isRevealed ? 'Talk about what the team saw.' : 'Choose your estimate.'}
+                </h1>
+                <p className="mt-3 max-w-3xl text-body leading-7 text-text-secondary">
+                  {isRevealed
+                    ? 'Start with the highest and lowest cards. Ask what assumptions, dependencies, or unknowns drove the difference.'
+                    : 'Think independently and place the card that best represents the effort, complexity, risk, and unknowns you see.'}
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="mt-3 max-w-4xl text-[clamp(2rem,5vw,3.5rem)] font-extrabold leading-[1.02] tracking-[-.045em] text-text break-words">
+                  <LongText text={story.text} expandLabel="Show full title" collapseLabel="Show less" />
+                </h1>
+                {story.description ? (
+                  <p className="mt-3 max-w-3xl text-body leading-7 text-text-secondary">
+                    <LongText text={story.description} />
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
 
-          {isHost && (story.state === 'active' || story.state === 'revealed') ? (
+          {!isAutoRound && isHost && (story.state === 'active' || story.state === 'revealed') ? (
             <div className="flex shrink-0 items-center gap-1 rounded-full border border-hairline bg-surface/90 p-1 shadow-card">
-              <Button variant="ghost" size="sm" onClick={() => setSplitOpen((o) => !o)}>
+              <Button variant="ghost" size="sm" onClick={() => setSplitOpen((open) => !open)}>
                 {splitOpen ? 'Cancel split' : 'Split'}
               </Button>
               {story.state === 'active' ? (
@@ -134,27 +161,27 @@ export function VotingStage({ story }: { story: Story }) {
           <ParticipantRoster storyId={story.id} />
         )}
 
-        {isHost && splitOpen && (story.state === 'active' || story.state === 'revealed') ? (
+        {!isAutoRound && isHost && splitOpen && (story.state === 'active' || story.state === 'revealed') ? (
           <SplitForm storyId={story.id} onClose={() => setSplitOpen(false)} />
         ) : null}
 
         {!isRevealed ? (
           <div className="flex min-h-28 flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-hairline bg-bg/45 px-4 py-5 text-center">
-            <p className={everyoneIn ? 'font-serif text-2xl text-success-on' : 'font-serif text-2xl text-text'}>
+            <p className={everyoneIn ? 'text-2xl font-extrabold text-success-on' : 'text-2xl font-extrabold text-text'}>
               {everyoneIn
-                ? 'Everyone’s in!'
+                ? 'Everyone’s in.'
                 : myVote
                   ? `${votedCount} of ${seated.length} cards are down`
                   : canVote
-                    ? 'Pick a card from your hand'
+                    ? 'Your team is waiting on cards'
                     : `${votedCount} of ${seated.length} cards are down`}
             </p>
             <p className="max-w-xl text-sm leading-6 text-text-secondary">
               {everyoneIn
-                ? 'Flip together, then talk about the spread.'
+                ? 'The facilitator can reveal now, or give the team another moment.'
                 : myVote
-                  ? 'Your estimate is private until the host flips the table.'
-                  : 'Votes stay hidden so everyone can think independently.'}
+                  ? 'Your card is private. You can change it until the reveal.'
+                  : 'Votes stay hidden so no one anchors on another person’s estimate.'}
             </p>
             {isHost ? (
               <Button
@@ -164,11 +191,11 @@ export function VotingStage({ story }: { story: Story }) {
                 onClick={() => send('REVEAL_VOTES', { storyId: story.id })}
                 className="mt-1 min-w-52"
               >
-                Flip the cards!
+                Reveal cards
               </Button>
             ) : null}
             {isHost && !everyoneIn ? (
-              <span className="text-caption font-semibold text-text-muted">You can flip early when the conversation is ready.</span>
+              <span className="text-caption font-semibold text-text-muted">You can reveal early when the conversation is ready.</span>
             ) : null}
           </div>
         ) : null}
@@ -179,27 +206,79 @@ export function VotingStage({ story }: { story: Story }) {
             <VarianceBanner storyId={story.id} />
             <RevealStats storyId={story.id} animateReveal={animateReveal} />
             <SessionResultsPanel storyId={story.id} />
-            {story.ai ? (
-              <AiSuggestionPanel
-                ai={story.ai}
-                isHost={isHost}
-                revealed
-                onShare={isHost ? () => send('SHARE_AI', { storyId: story.id }) : undefined}
-              />
-            ) : null}
-            {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
+
+            {isAutoRound ? (
+              <RoundClosePanel storyId={story.id} isHost={isHost} />
+            ) : (
+              <>
+                {story.ai ? (
+                  <AiSuggestionPanel
+                    ai={story.ai}
+                    isHost={isHost}
+                    revealed
+                    onShare={isHost ? () => send('SHARE_AI', { storyId: story.id }) : undefined}
+                  />
+                ) : null}
+                {isHost && story.state === 'revealed' ? <CommitPanel story={story} /> : null}
+              </>
+            )}
           </div>
         ) : (
           <>
             <div data-slot="cast">
               {canVote ? <CastPanel story={story} /> : null}
             </div>
-            {isHost && story.state === 'active' ? <HostAiSection story={story} /> : null}
+            {!isAutoRound && isHost && story.state === 'active' ? <HostAiSection story={story} /> : null}
           </>
         )}
       </div>
 
       <div aria-live="polite" aria-atomic="true" className="sr-only">{srAnnounce}</div>
+    </section>
+  );
+}
+
+function RoundClosePanel({ storyId, isHost }: { storyId: string; isHost: boolean }) {
+  const send = useSend();
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, [storyId]);
+
+  if (!isHost) {
+    return (
+      <section className="rounded-[22px] border border-hairline bg-bg/45 p-5 text-center">
+        <MessageCircleMore className="mx-auto text-accent-text" size={24} aria-hidden="true" />
+        <h2 className="mt-3 text-lg font-extrabold text-text">Discuss the differences.</h2>
+        <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-text-secondary">
+          The facilitator will close this vote when the team has enough shared understanding. Your cards will reset automatically.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-[22px] border border-accent bg-accent-tint p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
+      <div>
+        <p className="text-meta font-extrabold uppercase tracking-[.13em] text-accent-text">Facilitator action</p>
+        <h2 className="mt-2 text-xl font-extrabold text-text">Close this vote when the conversation is complete.</h2>
+        <p className="mt-2 text-sm leading-6 text-text-secondary">
+          Closing clears every card and immediately opens a fresh vote for the team.
+        </p>
+      </div>
+      <Button
+        ref={closeRef}
+        variant="primary"
+        size="lg"
+        aria-label="Vote again"
+        onClick={() => send('OPEN_VOTING', { storyId })}
+        leftIcon={<RotateCcw size={18} aria-hidden="true" />}
+        rightIcon={<ArrowRight size={18} aria-hidden="true" />}
+        className="mt-5 w-full shrink-0 sm:mt-0 sm:w-auto"
+      >
+        Close vote
+      </Button>
     </section>
   );
 }

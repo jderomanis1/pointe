@@ -3,7 +3,6 @@ import {
   ArrowRight,
   BarChart3,
   Check,
-  Clock,
   Link2,
   Lock,
   MessageCircleMore,
@@ -12,7 +11,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import type { RoomMode } from '@pointe/shared';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { createRoom } from '../lib/api';
@@ -30,7 +28,7 @@ type ActionMode = 'create' | 'join';
 
 const FEATURE_POINTS = [
   'No account or installation',
-  'Live and async estimation',
+  'Voting opens automatically',
   'Free, private, and ad-free',
 ];
 
@@ -44,7 +42,6 @@ const PREVIEW_PLAYERS = [
 export function CreatePage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [mode, setMode] = useState<RoomMode>('sync');
   const [action, setAction] = useState<ActionMode>('create');
   const [joinReference, setJoinReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -60,7 +57,7 @@ export function CreatePage() {
     }
     setSubmitting(true);
     setError(null);
-    const res = await createRoom({ hostDisplayName: trimmed, mode });
+    const res = await createRoom({ hostDisplayName: trimmed, mode: 'sync' });
     setSubmitting(false);
     if (!res.ok) {
       setError(res.error.message || 'Could not create a room. Try again.');
@@ -103,14 +100,14 @@ export function CreatePage() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-hairline bg-surface/90 px-3 py-1.5 text-meta font-semibold text-text-secondary shadow-card">
             <Sparkles size={14} aria-hidden="true" />
-            Planning poker, without the ceremony drag
+            Planning poker with nothing to configure
           </div>
 
-          <h1 className="mt-7 max-w-3xl font-serif text-[clamp(3.2rem,7vw,6.7rem)] leading-[.88] tracking-[-.045em] text-text">
-            Better estimates start with a better room.
+          <h1 className="mt-7 max-w-3xl text-[clamp(3.1rem,7vw,6.4rem)] font-extrabold leading-[.92] tracking-[-.055em] text-text">
+            Join the room. Pick a card. Keep moving.
           </h1>
           <p className="mt-7 max-w-2xl text-lg leading-8 text-text-secondary sm:text-xl">
-            Pointe gives agile teams a focused place to estimate stories, surface uncertainty, and reach alignment. Start in seconds, share one link, and keep the conversation moving.
+            Pointe gives agile teams one focused place to estimate together. Start in seconds, share one link, and enter directly into an open vote.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-x-5 gap-y-3">
@@ -145,8 +142,6 @@ export function CreatePage() {
               <CreateSessionForm
                 name={name}
                 setName={setName}
-                mode={mode}
-                setMode={setMode}
                 submitting={submitting}
                 error={error}
                 onSubmit={onSubmit}
@@ -166,16 +161,16 @@ export function CreatePage() {
       <section id="why-pointe" className="border-y border-hairline bg-surface/70">
         <div className="mx-auto grid max-w-7xl gap-px border-x border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
           <ValueCell icon={<Zap size={20} />} title="Start instantly">
-            No registration flow, workspace setup, or admin approval.
+            Name yourself, create the room, and voting is already open.
           </ValueCell>
-          <ValueCell icon={<Users size={20} />} title="Built for teams">
-            Designed for facilitators, delivery leads, product teams, and distributed squads.
+          <ValueCell icon={<Users size={20} />} title="Built for agile teams">
+            Designed around the actual refinement rhythm, not workspace administration.
           </ValueCell>
           <ValueCell icon={<Lock size={20} />} title="Private by default">
-            No advertising profile and no account required for basic use.
+            Votes stay hidden until the facilitator reveals them.
           </ValueCell>
-          <ValueCell icon={<BarChart3 size={20} />} title="Better signal">
-            Capture estimates, confidence, outliers, and the reasoning behind the spread.
+          <ValueCell icon={<BarChart3 size={20} />} title="Useful discussion">
+            Surface consensus and spread without slowing down the team.
           </ValueCell>
         </div>
       </section>
@@ -183,12 +178,12 @@ export function CreatePage() {
       <section id="how-it-works" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
         <div className="grid gap-12 lg:grid-cols-[.7fr_1.3fr] lg:gap-20">
           <div>
-            <p className="text-meta font-bold uppercase tracking-[.16em] text-accent-text">One link. One shared view.</p>
-            <h2 className="mt-4 font-serif text-[clamp(2.7rem,5vw,4.6rem)] leading-[.95] tracking-[-.035em]">
-              Low friction where it matters. More depth when it helps.
+            <p className="text-meta font-bold uppercase tracking-[.16em] text-accent-text">One link. One live loop.</p>
+            <h2 className="mt-4 text-[clamp(2.6rem,5vw,4.4rem)] font-extrabold leading-[.98] tracking-[-.045em]">
+              The ceremony should support the conversation, not interrupt it.
             </h2>
             <p className="mt-6 max-w-xl text-lg leading-8 text-text-secondary">
-              Pointe matches the speed teams expect from planning poker, then adds thoughtful options for the moments when a simple reveal is not enough.
+              Pointe removes setup steps and keeps the full team oriented around the vote that is happening now.
             </p>
           </div>
 
@@ -197,25 +192,25 @@ export function CreatePage() {
               number="01"
               icon={<Link2 size={20} />}
               title="Create and share"
-              body="Name the room, choose live or async, and send the generated link to the team."
+              body="Enter your name, send the room link, and the vote opens automatically."
             />
             <Capability
               number="02"
               icon={<MessageCircleMore size={20} />}
-              title="Vote without anchoring"
-              body="Choices stay private until reveal, helping every participant form an independent view."
+              title="Vote independently"
+              body="Cards stay private until reveal so every team member forms an honest estimate."
             />
             <Capability
               number="03"
-              icon={<Clock size={20} />}
-              title="Work live or async"
-              body="Estimate together on a call or open a voting window for teams across time zones."
+              icon={<Sparkles size={20} />}
+              title="Reveal together"
+              body="The facilitator flips the cards when the team is ready, even if someone is still thinking."
             />
             <Capability
               number="04"
               icon={<BarChart3 size={20} />}
-              title="Discuss the useful spread"
-              body="See consensus, median, confidence, and outliers so the team knows where to talk next."
+              title="Close and continue"
+              body="Discuss the useful spread, close the vote, and the next round opens immediately."
             />
           </div>
         </div>
@@ -230,8 +225,8 @@ export function CreatePage() {
           />
           <div className="relative max-w-2xl">
             <p className="text-meta font-bold uppercase tracking-[.16em] opacity-70">Your next refinement starts here</p>
-            <h2 className="mt-3 font-serif text-4xl leading-none tracking-[-.03em] sm:text-5xl">
-              Get the team estimating in under a minute.
+            <h2 className="mt-3 text-4xl font-extrabold leading-none tracking-[-.04em] sm:text-5xl">
+              Get everyone voting in under a minute.
             </h2>
           </div>
           <button
@@ -255,10 +250,10 @@ export function CreatePage() {
 function SiteHeader({ onStart }: { onStart: () => void }) {
   return (
     <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-10">
-      <Link to="/" className="inline-flex items-center gap-3" aria-label="Pointe home">
+      <Link to="/" className="inline-flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Pointe home">
         <BrandMark />
         <span>
-          <span className="block font-serif text-3xl leading-none tracking-[-.03em]">Pointe</span>
+          <span className="block text-2xl font-extrabold leading-none tracking-[-.04em]">Pointe</span>
           <span className="mt-1 block text-[10px] font-bold uppercase tracking-[.18em] text-text-muted">Plan with confidence</span>
         </span>
       </Link>
@@ -290,7 +285,7 @@ function BrandMark() {
     <span className="relative block h-11 w-12" aria-hidden="true">
       <span className="absolute left-1 top-1 h-9 w-7 -rotate-6 rounded-[9px] border-2 border-text bg-surface" />
       <span className="absolute right-0 top-0 grid h-10 w-8 rotate-6 place-items-center rounded-[9px] border-2 border-text bg-accent text-lg font-black text-accent-ink shadow-card">
-        5
+        P
       </span>
     </span>
   );
@@ -316,26 +311,22 @@ function ActionTab({ active, onClick, children }: { active: boolean; onClick: ()
 function CreateSessionForm({
   name,
   setName,
-  mode,
-  setMode,
   submitting,
   error,
   onSubmit,
 }: {
   name: string;
   setName: (value: string) => void;
-  mode: RoomMode;
-  setMode: (value: RoomMode) => void;
   submitting: boolean;
   error: string | null;
   onSubmit: (event: FormEvent) => void;
 }) {
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-5">
+    <form onSubmit={onSubmit} className="flex min-h-[360px] flex-col justify-center gap-5">
       <div>
         <p className="text-meta font-bold uppercase tracking-[.14em] text-accent-text">Create a room</p>
-        <h2 className="mt-2 font-serif text-4xl leading-none tracking-[-.03em]">Bring the team to the table.</h2>
-        <p className="mt-3 text-sm leading-6 text-text-secondary">You will be the host. No account, email, or setup wizard required.</p>
+        <h2 className="mt-2 text-4xl font-extrabold leading-[1.02] tracking-[-.04em]">Bring the team straight into the vote.</h2>
+        <p className="mt-3 text-sm leading-6 text-text-secondary">You will be the facilitator. No mode selection, story setup, account, or workspace required.</p>
       </div>
 
       <Input
@@ -345,32 +336,10 @@ function CreateSessionForm({
         value={name}
         onChange={(e) => setName(e.target.value)}
         error={error ?? undefined}
-        helper={error ? undefined : 'Shown to the room. You can switch to spectator later.'}
+        helper={error ? undefined : 'Shown to everyone at the table.'}
         disabled={submitting}
         autoFocus
       />
-
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-meta font-semibold text-text-secondary">How will the team estimate?</legend>
-        <div role="radiogroup" aria-label="Estimation mode" className="grid gap-3 sm:grid-cols-2">
-          <ModeOption
-            value="sync"
-            selected={mode}
-            onSelect={setMode}
-            title="Live (sync)"
-            desc="Everyone votes together during refinement."
-            icon={<Users size={18} />}
-          />
-          <ModeOption
-            value="async"
-            selected={mode}
-            onSelect={setMode}
-            title="Async window"
-            desc="Open a window and let the team vote on their schedule."
-            icon={<Clock size={18} />}
-          />
-        </div>
-      </fieldset>
 
       <Button type="submit" variant="primary" disabled={submitting}>
         {submitting ? 'Creating Session…' : 'Create Session'}
@@ -394,10 +363,10 @@ function JoinSessionForm({
   onSubmit: (event: FormEvent) => void;
 }) {
   return (
-    <form onSubmit={onSubmit} className="flex min-h-[420px] flex-col justify-center gap-5">
+    <form onSubmit={onSubmit} className="flex min-h-[360px] flex-col justify-center gap-5">
       <div>
         <p className="text-meta font-bold uppercase tracking-[.14em] text-accent-text">Join your team</p>
-        <h2 className="mt-2 font-serif text-4xl leading-none tracking-[-.03em]">Paste the link. Pick a name. You are in.</h2>
+        <h2 className="mt-2 text-4xl font-extrabold leading-[1.02] tracking-[-.04em]">Paste the link. Pick a name. Start voting.</h2>
         <p className="mt-3 text-sm leading-6 text-text-secondary">Use the full invitation link or the short room code shared by your facilitator.</p>
       </div>
       <Input
@@ -412,49 +381,9 @@ function JoinSessionForm({
       />
       <Button type="submit" variant="primary">Join Session</Button>
       <div className="rounded-[16px] border border-hairline bg-fill p-4 text-sm leading-6 text-text-secondary">
-        <strong className="text-text">Joining as a spectator?</strong> You can choose voter or spectator on the next screen.
+        <strong className="text-text">Just observing?</strong> Choose spectator on the next screen and follow the vote without placing a card.
       </div>
     </form>
-  );
-}
-
-function ModeOption({
-  value,
-  selected,
-  onSelect,
-  title,
-  desc,
-  icon,
-}: {
-  value: RoomMode;
-  selected: RoomMode;
-  onSelect: (m: RoomMode) => void;
-  title: string;
-  desc: string;
-  icon: ReactNode;
-}) {
-  const active = selected === value;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={() => onSelect(value)}
-      className={cn(
-        'min-h-[118px] rounded-[18px] border p-4 text-left transition-all duration-fast',
-        active
-          ? 'border-accent bg-accent-tint text-text shadow-card'
-          : 'border-hairline bg-surface text-text hover:-translate-y-0.5 hover:border-text-muted',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-      )}
-      data-mode-option={value}
-    >
-      <span className={cn('mb-3 grid size-9 place-items-center rounded-full', active ? 'bg-accent text-accent-ink' : 'bg-fill text-text-secondary')}>
-        {icon}
-      </span>
-      <span className="block font-sans text-body font-bold">{title}</span>
-      <span className="mt-1 block text-caption leading-5 text-text-secondary">{desc}</span>
-    </button>
   );
 }
 
@@ -463,8 +392,8 @@ function SessionPreview() {
     <div className="mt-10 max-w-2xl rounded-[26px] border border-hairline bg-surface/90 p-4 shadow-card sm:p-5">
       <div className="flex items-center justify-between border-b border-hairline pb-4">
         <div>
-          <p className="text-meta font-bold uppercase tracking-[.13em] text-text-muted">Sprint refinement</p>
-          <p className="mt-1 font-semibold text-text">Checkout recovery flow</p>
+          <p className="text-meta font-bold uppercase tracking-[.13em] text-text-muted">Live estimate</p>
+          <p className="mt-1 font-semibold text-text">Everyone is voting now</p>
         </div>
         <span className="rounded-full bg-success-surface px-3 py-1 text-caption font-bold text-success-on">3 of 4 ready</span>
       </div>
@@ -487,7 +416,7 @@ function SessionPreview() {
       <div className="flex flex-col gap-3 rounded-[18px] bg-fill p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-semibold text-text">Votes stay hidden until reveal.</p>
-          <p className="mt-1 text-caption text-text-secondary">Independent thinking first. Alignment second.</p>
+          <p className="mt-1 text-caption text-text-secondary">Independent thinking first. Conversation second.</p>
         </div>
         <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-black text-accent-ink shadow-card">
           Reveal cards <Sparkles size={15} aria-hidden="true" />
@@ -528,7 +457,7 @@ function SiteFooter() {
           <BrandMark />
           <div>
             <p className="font-bold text-text">Pointe</p>
-            <p className="text-caption">Planning poker that respects your team&apos;s judgment.</p>
+            <p className="text-caption">Planning poker that respects your team&apos;s time and judgment.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">

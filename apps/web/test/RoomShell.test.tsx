@@ -8,6 +8,7 @@ import { RoomShell } from '../src/components/room/RoomShell';
 import { RoomClientProvider } from '../src/components/room/RoomClientContext';
 import { useRoomStore } from '../src/store/roomStore';
 import { initialState } from '../src/store/reducer';
+import { AUTO_ROUND_TEXT } from '../src/lib/rounds';
 
 const SLUG = 'apt-sparrow-16';
 const HOST_ID = 'host-1';
@@ -34,56 +35,68 @@ function seed(snapshot: RoomSnapshot) {
   useRoomStore.getState().setConnection('connected');
 }
 
-function renderShell() {
-  return render(
+function renderShell(send = vi.fn()) {
+  render(
     <MemoryRouter>
-      <RoomClientProvider send={vi.fn()}>
+      <RoomClientProvider send={send}>
         <RoomShell slug={SLUG} />
       </RoomClientProvider>
     </MemoryRouter>,
   );
+  return send;
 }
 
 beforeEach(() => {
   useRoomStore.setState(initialState);
-  // Reset the data-theme attribute the ThemeToggle reads.
   document.documentElement.removeAttribute('data-theme');
 });
 
-describe('RoomShell — empty state (Fix 07)', () => {
-  it('host + no stories → editorial guide with add CTA, share link, and deck context', () => {
+describe('RoomShell — automatic live round', () => {
+  it('host + no stories automatically creates the internal round', async () => {
     seed({
       room: baseRoom(),
       voters: [voter(HOST_ID, 'Alice', 'host')],
       stories: [],
       you: { voterId: HOST_ID, role: 'voter' },
     });
-    renderShell();
+    const send = renderShell();
 
-    expect(screen.getByRole('heading', { name: 'Your room is ready.' })).toBeInTheDocument();
-    expect(screen.getByText(/Add your first story/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy Invite Link/ })).toBeInTheDocument();
-    // Deck context: fibonacci values rendered.
-    for (const v of ['1', '2', '3', '5', '8', '13', '21']) {
-      expect(screen.getByText(v)).toBeInTheDocument();
-    }
+    expect(screen.getByRole('heading', { name: 'Opening the vote…' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(send).toHaveBeenCalledWith('ADD_STORY', { text: AUTO_ROUND_TEXT });
+    });
+    expect(screen.queryByText(/Add your first story/i)).not.toBeInTheDocument();
   });
 
-  it('non-host + no stories → passive waiting message, no add affordance', () => {
+  it('host + pending internal round automatically opens voting', async () => {
+    seed({
+      room: baseRoom(),
+      voters: [voter(HOST_ID, 'Alice', 'host')],
+      stories: [story('auto-1', 100, AUTO_ROUND_TEXT)],
+      you: { voterId: HOST_ID, role: 'voter' },
+    });
+    const send = renderShell();
+
+    await waitFor(() => {
+      expect(send).toHaveBeenCalledWith('OPEN_VOTING', { storyId: 'auto-1' });
+    });
+  });
+
+  it('non-host waits for the facilitator without receiving setup controls', () => {
     seed({
       room: baseRoom(),
       voters: [voter(HOST_ID, 'Alice', 'host'), voter(VOTER_ID, 'Bob')],
       stories: [],
       you: { voterId: VOTER_ID, role: 'voter' },
     });
-    renderShell();
+    const send = renderShell();
 
-    expect(screen.getByRole('heading', { name: 'Waiting for the host' })).toBeInTheDocument();
-    expect(screen.queryByText(/Add your first story/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Copy Invite Link/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'The facilitator is opening the vote…' })).toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Add your first story/i)).not.toBeInTheDocument();
   });
 
-  it('host clicks Copy Invite Link → writes `${origin}/${slug}` to the clipboard and shows toast', async () => {
+  it('header invite copies `${origin}/${slug}` to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true, value: { writeText },
@@ -92,19 +105,19 @@ describe('RoomShell — empty state (Fix 07)', () => {
     seed({
       room: baseRoom(),
       voters: [voter(HOST_ID, 'Alice', 'host')],
-      stories: [],
+      stories: [story('auto-1', 100, AUTO_ROUND_TEXT, 'active')],
       you: { voterId: HOST_ID, role: 'voter' },
     });
     renderShell();
 
-    await userEvent.click(screen.getByRole('button', { name: /Copy Invite Link/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Invite the team/ }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/${SLUG}`);
-    await waitFor(() => expect(screen.getByText('URL COPIED TO CLIPBOARD')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Link copied/ })).toBeInTheDocument());
   });
 });
 
-describe('RoomShell — populated', () => {
-  it('seeded stories render in order with text + state badge + external id', () => {
+describe('RoomShell — legacy compatibility', () => {
+  it('seeded legacy stories remain available in the optional queue', () => {
     seed({
       room: baseRoom(),
       voters: [voter(HOST_ID, 'Alice', 'host'), voter(VOTER_ID, 'Bob')],
@@ -116,16 +129,11 @@ describe('RoomShell — populated', () => {
     });
     renderShell();
 
-    const items = screen.getAllByRole('listitem');
-    const storyTexts = items
-      .map((li) => li.textContent ?? '')
-      .filter((t) => t.includes('PROJ-'));
-    expect(storyTexts[0]).toContain('Add password reset');
-    expect(storyTexts[0]).toContain('PROJ-1');
-    expect(storyTexts[1]).toContain('Refactor login');
-    // State badges.
-    expect(screen.getByText('voting')).toBeInTheDocument();
-    expect(screen.getByText('pending')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Add password reset' })).toBeInTheDocument();
+    const details = screen.getByText('Legacy session items').closest('details');
+    expect(details).not.toBeNull();
+    expect(screen.getAllByText('PROJ-1').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('PROJ-2')).toBeInTheDocument();
   });
 });
 
@@ -139,18 +147,17 @@ describe('RoomShell — roster', () => {
         voter('spec-1', 'Cleo', 'spectator'),
         voter('left-1', 'Dropout', 'voter', 'left'),
       ],
-      stories: [],
+      stories: [story('auto-1', 100, AUTO_ROUND_TEXT, 'active')],
       you: { voterId: VOTER_ID, role: 'voter' },
     });
     renderShell();
 
-    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('Alice').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('host')).toBeInTheDocument();
-    expect(screen.getByText('Cleo')).toBeInTheDocument();
+    expect(screen.getAllByText('Cleo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('spectator')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
-    expect(screen.getByText('(you)')).toBeInTheDocument();
-    // Excludes 'left' from the connected count in the roster header.
+    expect(screen.getAllByText('Bob').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('(you)').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Voters · 3/)).toBeInTheDocument();
   });
 });

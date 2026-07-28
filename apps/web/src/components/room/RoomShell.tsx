@@ -1,21 +1,16 @@
-import { useState, type ReactNode } from 'react';
-import { Check, Link2, Wifi, WifiOff } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Link2, LoaderCircle, Wifi, WifiOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useRoomStore } from '../../store/roomStore';
+import { AUTO_ROUND_TEXT, isAutoRoundText } from '../../lib/rounds';
 import { Badge } from '../Badge';
 import { Roster } from './Roster';
 import { StoryQueue } from './StoryQueue';
-import { EmptyState } from './EmptyState';
 import { ThemeToggle } from './ThemeToggle';
-import { ShareLink } from './EmptyState';
 import { VotingStage } from './VotingStage';
 import { HostVacantBanner } from './HostVacantBanner';
 import { ReplacedNotice } from './ReplacedNotice';
-import { AsyncOpenPanel } from './AsyncOpenPanel';
-import { AsyncVoterView } from './AsyncVoterView';
-import { AsyncHostMonitorView } from './AsyncHostMonitorView';
-import { ReviewHostScreen } from './ReviewHostScreen';
-import { ReviewVoterScreen } from './ReviewVoterScreen';
+import { useSend } from './RoomClientContext';
 
 function ConnectionStatus() {
   const status = useRoomStore((s) => s.connection);
@@ -76,13 +71,49 @@ function InviteButton({ slug }: { slug: string }) {
   );
 }
 
-export function RoomShell({
-  slug, addStorySlot, persistentAddStorySlot,
-}: {
-  slug: string;
-  addStorySlot?: ReactNode;
-  persistentAddStorySlot?: ReactNode;
-}) {
+function AutoRoundController({ isHost }: { isHost: boolean }) {
+  const send = useSend();
+  const stories = useRoomStore((s) => s.stories);
+  const addSent = useRef(false);
+  const openedIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!isHost) return;
+
+    const focusStory = stories.find((story) => story.state === 'active' || story.state === 'revealed');
+    if (focusStory) return;
+
+    if (stories.length === 0) {
+      if (addSent.current) return;
+      addSent.current = true;
+      send('ADD_STORY', { text: AUTO_ROUND_TEXT });
+      return;
+    }
+
+    const next = stories.find((story) => story.state === 'pending' && isAutoRoundText(story.text));
+    if (!next || openedIds.current.has(next.id)) return;
+    openedIds.current.add(next.id);
+    send('OPEN_VOTING', { storyId: next.id });
+  }, [isHost, send, stories]);
+
+  return null;
+}
+
+function OpeningRound({ isHost }: { isHost: boolean }) {
+  return (
+    <section className="rounded-[28px] border border-hairline bg-surface/95 px-6 py-14 text-center shadow-pop sm:px-10">
+      <LoaderCircle className="mx-auto animate-spin text-accent-text" size={30} aria-hidden="true" />
+      <h1 className="mt-5 text-3xl font-extrabold tracking-[-.035em] text-text">
+        {isHost ? 'Opening the vote…' : 'The facilitator is opening the vote…'}
+      </h1>
+      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-secondary">
+        Your card hand will appear automatically. There is nothing else to set up.
+      </p>
+    </section>
+  );
+}
+
+export function RoomShell({ slug }: { slug: string }) {
   const room = useRoomStore((s) => s.room);
   const stories = useRoomStore((s) => s.stories);
   const me = useRoomStore((s) => s.me);
@@ -90,21 +121,13 @@ export function RoomShell({
   const isHost = me?.voterId !== undefined
     && room?.hostVoterId !== null
     && me?.voterId === room?.hostVoterId;
-  const focusStory = stories.find((s) => s.state === 'active' || s.state === 'revealed') ?? null;
-
-  const asyncWindowOpen = room?.mode === 'async'
-    && room.asyncWindow !== undefined
-    && room.state === 'active';
-  const showAsyncVoterView = asyncWindowOpen
-    && !isHost
-    && me?.role !== 'spectator';
-  const showAsyncHostView = asyncWindowOpen && isHost;
-  const showReview = room?.state === 'review' && me?.role !== 'spectator';
-  const showReviewHost = showReview && isHost;
-  const showReviewVoter = showReview && !isHost;
+  const focusStory = stories.find((story) => story.state === 'active' || story.state === 'revealed') ?? null;
+  const legacyStories = stories.filter((story) => !isAutoRoundText(story.text));
 
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-bg text-text font-sans">
+      <AutoRoundController isHost={isHost} />
+
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-x-0 top-0 h-[620px] opacity-80"
@@ -123,7 +146,7 @@ export function RoomShell({
           >
             <BrandMark />
             <span className="min-w-0">
-              <span className="block font-serif text-2xl leading-none tracking-[-.03em]">Pointe</span>
+              <span className="block text-xl font-extrabold leading-none tracking-[-.04em]">Pointe</span>
               <span className="mt-1 block truncate text-[10px] font-bold uppercase tracking-[.15em] text-text-muted">
                 Room {slug}
               </span>
@@ -143,58 +166,21 @@ export function RoomShell({
         <ReplacedNotice />
         <Roster />
 
-        {showAsyncVoterView && room ? (
-          <AsyncVoterView room={room} />
-        ) : showAsyncHostView && room ? (
-          <AsyncHostMonitorView room={room} slug={slug} />
-        ) : showReviewHost ? (
-          <ReviewHostScreen />
-        ) : showReviewVoter ? (
-          <ReviewVoterScreen />
-        ) : stories.length === 0 ? (
-          <EmptyState
-            slug={slug}
-            deck={room?.deck ?? 'fibonacci'}
-            customDeck={room?.customDeck}
-            isHost={isHost}
-            addStorySlot={addStorySlot}
-          />
-        ) : focusStory ? (
-          <>
-            <VotingStage story={focusStory} />
-            <details className="group rounded-[22px] border border-hairline bg-surface/85 shadow-card">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 font-bold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                <span>Session stories</span>
-                <span className="text-caption font-semibold text-text-secondary group-open:hidden">Show queue</span>
-                <span className="hidden text-caption font-semibold text-text-secondary group-open:inline">Hide queue</span>
-              </summary>
-              <div className="border-t border-hairline p-4 sm:p-5">
-                <StoryQueue />
-                {isHost && persistentAddStorySlot ? <div className="mt-5">{persistentAddStorySlot}</div> : null}
-              </div>
-            </details>
-          </>
-        ) : (
-          <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-            <section className="rounded-[26px] border border-hairline bg-surface/90 p-4 shadow-pop sm:p-6">
-              {isHost && persistentAddStorySlot ? persistentAddStorySlot : null}
-              <div className={isHost && persistentAddStorySlot ? 'mt-6' : ''}>
-                <AsyncOpenPanel />
-                <StoryQueue />
-              </div>
-            </section>
-            <aside className="flex flex-col gap-4 rounded-[24px] border border-hairline bg-surface/90 p-5 shadow-card">
-              <div>
-                <p className="text-meta font-bold uppercase tracking-[.12em] text-accent-text">Bring the team in</p>
-                <p className="mt-2 text-sm leading-6 text-text-secondary">
-                  Share one link. No accounts or setup required.
-                </p>
-              </div>
-              {isHost ? <ShareLink slug={slug} /> : null}
-              <Badge variant="neutral">{room?.deck ?? 'fibonacci'} deck</Badge>
-            </aside>
-          </div>
-        )}
+        {focusStory ? <VotingStage story={focusStory} /> : <OpeningRound isHost={isHost} />}
+
+        {legacyStories.length > 0 ? (
+          <details className="group rounded-[22px] border border-hairline bg-surface/85 shadow-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 font-bold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <span>Legacy session items</span>
+              <span className="text-caption font-semibold text-text-secondary group-open:hidden">Show</span>
+              <span className="hidden text-caption font-semibold text-text-secondary group-open:inline">Hide</span>
+            </summary>
+            <div className="border-t border-hairline p-4 sm:p-5">
+              <StoryQueue />
+              <Badge variant="neutral">Previous room format</Badge>
+            </div>
+          </details>
+        ) : null}
       </div>
     </main>
   );
