@@ -38,3 +38,137 @@ jobs:
 
       - name: Run web tests
         run: pnpm -F @pointe/web test
+
+      - name: Verify live web, SEO, REST, and WebSocket retrospective flow
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..18}; do
+            if curl --fail --silent --show-error --location \
+              "https://pointe.team/" --output /tmp/pointe-home.html \
+              && curl --fail --silent --show-error --location \
+              "https://pointe.team/retro" --output /tmp/pointe-retro.html \
+              && curl --fail --silent --show-error --location \
+              "https://pointe.team/robots.txt" --output /tmp/pointe-robots.txt \
+              && curl --fail --silent --show-error --location \
+              "https://pointe.team/sitemap.xml" --output /tmp/pointe-sitemap.xml \
+              && grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-home.html \
+              && grep -Fq "Planning Poker & Retrospectives for Agile Teams" /tmp/pointe-retro.html \
+              && grep -Fq "Sitemap: https://pointe.team/sitemap.xml" /tmp/pointe-robots.txt \
+              && grep -Fq "https://pointe.team/retro" /tmp/pointe-sitemap.xml; then
+              break
+            fi
+            if [ "$attempt" = 18 ]; then
+              echo "Live web/SEO verification failed" >&2
+              exit 1
+            fi
+            echo "Production edge not ready on attempt ${attempt}; retrying..."
+            sleep 5
+          done
+
+          node <<'NODE'
+          const base = 'https://pointe.team';
+          const facilitatorName = `Production Smoke ${Date.now()}`;
+
+          const create = await fetch(`${base}/api/retros`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ facilitatorName }),
+          });
+          if (create.status !== 201) {
+            throw new Error(`Create retro failed: ${create.status} ${await create.text()}`);
+          }
+          const created = await create.json();
+          if (!created.slug || !created.participantId) {
+            throw new Error(`Incomplete create response: ${JSON.stringify(created)}`);
+          }
+
+          const initial = await fetch(`${base}/api/retros/${created.slug}`);
+          if (initial.status !== 200) {
+            throw new Error(`Retro lookup failed: ${initial.status} ${await initial.text()}`);
+          }
+          const initialState = await initial.json();
+          if (initialState.state !== 'open') {
+            throw new Error(`Expected open retro, got ${JSON.stringify(initialState)}`);
+          }
+
+          await new Promise((resolve, reject) => {
+            const ws = new WebSocket(`wss://pointe.team/api/retros/${created.slug}/ws`);
+            let stage = 0;
+            const timer = setTimeout(() => {
+              ws.close();
+              reject(new Error(`WebSocket smoke timed out at stage ${stage}`));
+            }, 30000);
+
+            ws.addEventListener('open', () => {
+              ws.send(JSON.stringify({
+                type: 'JOIN',
+                payload: {
+                  slug: created.slug,
+                  resumeParticipantId: created.participantId,
+                  role: 'participant',
+                },
+              }));
+            });
+
+            ws.addEventListener('message', (event) => {
+              const message = JSON.parse(String(event.data));
+              if (message.type === 'ERROR') {
+                clearTimeout(timer);
+                ws.close();
+                reject(new Error(`WebSocket error: ${JSON.stringify(message.payload)}`));
+                return;
+              }
+              if (message.type !== 'SNAPSHOT') return;
+              const snapshot = message.payload;
+
+              if (stage === 0 && snapshot.you.role === 'facilitator' && snapshot.mode === 'entry') {
+                stage = 1;
+                ws.send(JSON.stringify({
+                  type: 'ADD_NOTE',
+                  payload: {
+                    column: 'start',
+                    text: 'Production WebSocket smoke note',
+                    anonymous: false,
+                  },
+                }));
+                return;
+              }
+
+              if (stage === 1 && snapshot.notes.some((note) => note.text === 'Production WebSocket smoke note')) {
+                stage = 2;
+                ws.send(JSON.stringify({ type: 'SET_MODE', payload: { mode: 'review' } }));
+                return;
+              }
+
+              if (stage === 2 && snapshot.mode === 'review') {
+                stage = 3;
+                ws.send(JSON.stringify({ type: 'CLOSE_RETRO', payload: {} }));
+                return;
+              }
+
+              if (stage === 3 && snapshot.state === 'closed') {
+                clearTimeout(timer);
+                ws.close();
+                resolve();
+              }
+            });
+
+            ws.addEventListener('error', () => {
+              clearTimeout(timer);
+              reject(new Error('WebSocket connection failed'));
+            });
+          });
+
+          const final = await fetch(`${base}/api/retros/${created.slug}`);
+          if (final.status !== 200) {
+            throw new Error(`Final retro lookup failed: ${final.status} ${await final.text()}`);
+          }
+          const finalState = await final.json();
+          if (finalState.state !== 'closed') {
+            throw new Error(`Expected closed retro, got ${JSON.stringify(finalState)}`);
+          }
+
+          console.log(`Verified live retrospective ${created.slug}: REST + WebSocket + closure`);
+          NODE
