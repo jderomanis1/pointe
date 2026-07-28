@@ -57,11 +57,12 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         shell: bash
         run: |
+          sed -E $'s/\x1B\[[0-9;]*[mK]//g' /tmp/pointe-web-tests.log > /tmp/pointe-web-tests-clean.log
           {
             echo '### Temporary CI diagnostic'
             echo
             echo '```text'
-            tail -n 160 /tmp/pointe-web-tests.log
+            grep -E -B 3 -A 6 'FAIL|Failed Tests|TestingLibraryElementError|Unable to find|Found multiple|AssertionError|expected|apps/web/test/|Test Files|Tests ' /tmp/pointe-web-tests-clean.log | tail -n 140
             echo '```'
           } > /tmp/pointe-web-tests-comment.md
           gh pr comment "$PR_NUMBER" --body-file /tmp/pointe-web-tests-comment.md
