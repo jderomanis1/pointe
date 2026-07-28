@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
@@ -41,30 +37,4 @@ jobs:
         run: pnpm -F @pointe/worker test
 
       - name: Run web tests
-        id: web-tests
-        shell: bash
-        run: |
-          set +e
-          pnpm -F @pointe/web test > /tmp/pointe-web-tests.log 2>&1
-          code=$?
-          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Report web test failure
-        if: steps.web-tests.outputs.exit_code != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DIAGNOSTIC_COMMENT_ID: '5107778068'
-        shell: bash
-        run: |
-          sed -E $'s/\x1B\[[0-9;]*[mK]//g' /tmp/pointe-web-tests.log > /tmp/pointe-web-tests-clean.log
-          {
-            echo '### Temporary CI diagnostic'
-            echo
-            echo '```text'
-            grep -E '^( FAIL| ×| ❯ (test|src)/| Test Files| Tests|TestingLibraryElementError:|AssertionError:|Error: (Unable|Found)|expected )' /tmp/pointe-web-tests-clean.log | tail -n 120
-            echo '```'
-          } > /tmp/pointe-web-tests-comment.md
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${DIAGNOSTIC_COMMENT_ID}" \
-            -f body="$(cat /tmp/pointe-web-tests-comment.md)" > /dev/null
-          exit 1
+        run: pnpm -F @pointe/web test
