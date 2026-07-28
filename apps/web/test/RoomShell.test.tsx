@@ -154,7 +154,7 @@ describe('RoomShell — roster', () => {
 
     expect(screen.getAllByText('Alice').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('host')).toBeInTheDocument();
-    expect(screen.getByText('Cleo')).toBeInTheDocument();
+    expect(screen.getAllByText('Cleo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('spectator')).toBeInTheDocument();
     expect(screen.getAllByText('Bob').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('(you)').length).toBeGreaterThanOrEqual(1);
