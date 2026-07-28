@@ -102,9 +102,6 @@ export function RoomShell({
   const showReview = room?.state === 'review' && me?.role !== 'spectator';
   const showReviewHost = showReview && isHost;
   const showReviewVoter = showReview && !isHost;
-  const isFocusedExperience = Boolean(
-    showAsyncVoterView || showAsyncHostView || showReviewHost || showReviewVoter || focusStory,
-  );
 
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-bg text-text font-sans">
@@ -144,8 +141,7 @@ export function RoomShell({
       <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
         <HostVacantBanner />
         <ReplacedNotice />
-
-        {!isFocusedExperience ? <Roster /> : null}
+        <Roster />
 
         {showAsyncVoterView && room ? (
           <AsyncVoterView room={room} />
