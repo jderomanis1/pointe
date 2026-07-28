@@ -39,7 +39,7 @@ test('retrospective supports private entry, shared review, observers, and closur
   const observer = await observerContext.newPage();
   await observer.goto(roomUrl);
   await observer.getByLabel('Your name').fill('Priya Observer');
-  await observer.getByRole('radio', { name: /Observer/i }).click();
+  await observer.getByText('Observer', { exact: true }).click();
   await observer.getByRole('button', { name: 'Join retrospective' }).click();
   await expect(observer.getByText('Observer mode')).toBeVisible();
   await expect(observer.getByRole('button', { name: 'Add note' })).toHaveCount(0);
