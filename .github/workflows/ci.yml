@@ -34,21 +34,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Run worker tests
-        shell: bash
-        run: |
-          set +e
-          pnpm -F @pointe/worker test > worker-tests.log 2>&1
-          status=$?
-          cat worker-tests.log
-          exit $status
-
-      - name: Upload worker test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: worker-test-diagnostics
-          path: worker-tests.log
-          if-no-files-found: ignore
+        run: pnpm -F @pointe/worker test
 
       - name: Run web tests
         run: pnpm -F @pointe/web test
