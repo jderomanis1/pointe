@@ -119,7 +119,11 @@ export function RoomShell({
 
       <header className="sticky top-0 z-30 border-b border-hairline bg-bg/90 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
-          <Link to="/" className="inline-flex min-w-0 items-center gap-3" aria-label="Pointe home">
+          <Link
+            to="/"
+            className="inline-flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            aria-label="Pointe home"
+          >
             <BrandMark />
             <span className="min-w-0">
               <span className="block font-serif text-2xl leading-none tracking-[-.03em]">Pointe</span>
