@@ -73,13 +73,12 @@ describe('automatic live round UX', () => {
     expect(screen.getByRole('button', { name: 'Cast estimate' })).toBeInTheDocument();
   });
 
-  it('facilitator reveals cards and closes the vote by reopening the internal round', async () => {
+  it('facilitator closes the revealed vote by reopening the internal round', async () => {
     seed({
       room: room(),
       voters: [voter(HOST_ID, 'Helen', 'host'), voter(VOTER_ID, 'Alice')],
       stories: [story('revealed')],
       you: { voterId: HOST_ID, role: 'voter' },
-      votes: [vote(HOST_ID, '5'), vote(VOTER_ID, '8')],
     });
     useRoomStore.setState((state) => ({
       ...state,
@@ -87,7 +86,7 @@ describe('automatic live round UX', () => {
         [STORY_ID]: {
           votes: [vote(HOST_ID, '5'), vote(VOTER_ID, '8')],
           stats: {
-            median: '6.5', outliers: [], avgConfidence: 3,
+            median: '5', outliers: [], avgConfidence: 3,
             lowConfidence: false, nonNumeric: [], numericCount: 2,
           },
         },
@@ -115,7 +114,7 @@ describe('automatic live round UX', () => {
         [STORY_ID]: {
           votes: [vote(HOST_ID, '5'), vote(VOTER_ID, '8')],
           stats: {
-            median: '6.5', outliers: [], avgConfidence: 3,
+            median: '5', outliers: [], avgConfidence: 3,
             lowConfidence: false, nonNumeric: [], numericCount: 2,
           },
         },
