@@ -3,65 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pointe | Planning Poker & Retrospectives for Agile Teams</title>
+    <title>Pointe | Free Planning Poker & Agile Retrospectives</title>
     <meta
       name="description"
-      content="Free planning poker and Start Stop Continue retrospectives for agile teams. Create a live or async room in seconds, share one link, and move from independent thinking to better team decisions."
+      content="Run free planning poker and Start Stop Continue retrospectives with your agile team. Create a live or async room in seconds, share one link, and estimate without accounts, ads, or downloads."
     />
     <meta
       name="keywords"
-      content="planning poker, scrum poker, agile retrospective, start stop continue, agile estimation, story points, sprint planning, backlog refinement, remote agile teams"
+      content="planning poker, scrum poker, free planning poker, agile retrospective, start stop continue, agile estimation, story points, sprint planning, backlog refinement, remote agile teams"
     />
     <meta name="author" content="Pointe" />
-    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="application-name" content="Pointe" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="theme-color" content="#FFF6E8" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#17120F" media="(prefers-color-scheme: dark)" />
     <link rel="canonical" href="https://pointe.team/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Pointe" />
-    <meta property="og:title" content="Pointe | Better Planning Poker & Retrospectives" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Pointe | Free Planning Poker for Agile Teams" />
     <meta
       property="og:description"
-      content="Start a planning poker session or collaborative Start Stop Continue retrospective in seconds. No account, no ads, and no ceremony drag."
+      content="Estimate stories, surface uncertainty, and run collaborative retrospectives in seconds. No account, no ads, and no downloads."
     />
     <meta property="og:url" content="https://pointe.team/" />
 
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Pointe | Better Planning Poker & Retrospectives" />
+    <meta name="twitter:title" content="Pointe | Free Planning Poker for Agile Teams" />
     <meta
       name="twitter:description"
-      content="Free planning poker and collaborative retrospectives for distributed agile teams. Start in seconds and share one link."
+      content="Free live and async planning poker plus collaborative retrospectives for distributed agile teams. Start in seconds and share one link."
     />
 
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
-        "name": "Pointe",
-        "url": "https://pointe.team/",
-        "description": "Free planning poker and collaborative retrospectives for agile teams.",
-        "applicationCategory": "BusinessApplication",
-        "operatingSystem": "Any",
-        "browserRequirements": "Requires a modern web browser",
-        "isAccessibleForFree": true,
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "featureList": [
-          "Live planning poker",
-          "Async estimation windows",
-          "Private voting and reveal",
-          "Start Stop Continue retrospectives",
-          "Independent retrospective entry mode",
-          "Anonymous retrospective notes",
-          "Observer participation",
-          "Markdown export",
-          "No account required"
-        ],
-        "codeRepository": "https://github.com/jderomanis1/pointe"
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://pointe.team/#website",
+            "url": "https://pointe.team/",
+            "name": "Pointe",
+            "description": "Free planning poker and collaborative retrospectives for agile teams."
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://pointe.team/#app",
+            "name": "Pointe",
+            "url": "https://pointe.team/",
+            "description": "Free live and async planning poker and collaborative Start Stop Continue retrospectives for agile teams.",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Agile team collaboration",
+            "operatingSystem": "Any",
+            "browserRequirements": "Requires a modern web browser",
+            "isAccessibleForFree": true,
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "Live planning poker",
+              "Async estimation windows",
+              "Private voting and simultaneous reveal",
+              "Confidence and variance signals",
+              "Start Stop Continue retrospectives",
+              "Independent and anonymous retrospective entry",
+              "Observer participation",
+              "Markdown export",
+              "No account required"
+            ],
+            "codeRepository": "https://github.com/jderomanis1/pointe"
+          }
+        ]
       }
     </script>
   </head>
@@ -69,7 +86,7 @@
     <div id="root">
       <main style="max-width: 760px; margin: 0 auto; padding: 72px 24px; font-family: system-ui, sans-serif; color: #3F2E26;">
         <p style="font-weight: 700; letter-spacing: .1em; text-transform: uppercase;">Free agile team collaboration</p>
-        <h1 style="font-family: Georgia, serif; font-size: clamp(3rem, 8vw, 6rem); line-height: .95; margin: 20px 0;">Better team decisions start with a better room.</h1>
+        <h1 style="font-family: Georgia, serif; font-size: clamp(3rem, 8vw, 6rem); line-height: .95; margin: 20px 0;">Better estimates start with a better room.</h1>
         <p style="font-size: 1.15rem; line-height: 1.7;">Pointe helps distributed and co-located agile teams estimate stories, surface uncertainty, run Start Stop Continue retrospectives, and reach useful alignment. Create a room in seconds, share one link, and participate with no account required.</p>
         <p>Features include private planning poker votes, simultaneous reveal, live and async estimation, confidence signals, independent retrospective entry, anonymous notes, review mode, discussed tracking, observer roles, and Markdown export.</p>
       </main>

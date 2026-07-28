@@ -1,0 +1,19 @@
+{
+  "name": "Pointe Planning Poker",
+  "short_name": "Pointe",
+  "description": "Free planning poker and collaborative retrospectives for agile teams.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFF6E8",
+  "theme_color": "#F07C2A",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
