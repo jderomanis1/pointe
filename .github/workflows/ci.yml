@@ -51,4 +51,18 @@ jobs:
         run: pnpm -F @pointe/worker test
 
       - name: Run web tests
-        run: pnpm -F @pointe/web test
+        shell: bash
+        run: |
+          set +e
+          pnpm -F @pointe/web test > web-tests.log 2>&1
+          status=$?
+          cat web-tests.log
+          exit $status
+
+      - name: Upload frontend test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-diagnostics
+          path: web-tests.log
+          if-no-files-found: ignore
