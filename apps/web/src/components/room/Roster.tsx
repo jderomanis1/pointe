@@ -37,7 +37,7 @@ export function Roster() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="shrink-0">
           <p className="text-meta font-extrabold uppercase tracking-[.13em] text-accent-text">At the table</p>
-          <p className="mt-1 text-sm font-semibold text-text-secondary">{liveCount} {liveCount === 1 ? 'person' : 'people'} connected</p>
+          <p className="mt-1 text-sm font-semibold text-text-secondary">Voters · {liveCount}</p>
         </div>
 
         <ul className="flex flex-1 flex-wrap gap-2 sm:justify-end">
@@ -55,12 +55,11 @@ export function Roster() {
                 <span className="grid size-7 place-items-center rounded-full bg-fill text-[10px] font-extrabold text-text">
                   {initials(v.displayName)}
                 </span>
-                <span className="max-w-32 truncate text-sm font-bold text-text">
-                  {v.displayName}{isMe ? ' (you)' : ''}
-                </span>
+                <span className="max-w-32 truncate text-sm font-bold text-text">{v.displayName}</span>
+                {isMe ? <span className="text-caption font-semibold text-text-secondary">(you)</span> : null}
                 <ConnectionDot state={v.connectionState} />
                 {v.role === 'host' ? <Badge variant="accent">host</Badge> : null}
-                {v.role === 'spectator' ? <Badge variant="neutral">watching</Badge> : null}
+                {v.role === 'spectator' ? <Badge variant="neutral">spectator</Badge> : null}
               </li>
             );
           })}
