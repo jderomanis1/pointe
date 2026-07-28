@@ -4,7 +4,6 @@ import {
   BarChart3,
   Check,
   Clock,
-  Github,
   Link2,
   Lock,
   MessageCircleMore,
@@ -272,7 +271,7 @@ function SiteHeader({ onStart }: { onStart: () => void }) {
           target="_blank"
           rel="noreferrer"
         >
-          <Github size={16} aria-hidden="true" /> Open source
+          <span aria-hidden="true">↗</span> Open source
         </a>
       </nav>
       <button
@@ -541,7 +540,7 @@ function SiteFooter() {
             target="_blank"
             rel="noreferrer"
           >
-            <Github size={15} aria-hidden="true" /> GitHub
+            <span aria-hidden="true">↗</span> GitHub
           </a>
         </div>
       </div>
