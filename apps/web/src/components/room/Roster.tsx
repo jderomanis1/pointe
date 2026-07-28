@@ -33,7 +33,7 @@ export function Roster() {
   const liveCount = rows.filter((v) => v.connectionState !== 'left').length;
 
   return (
-    <section className="rounded-[22px] border border-hairline bg-surface/85 px-4 py-4 shadow-card sm:px-5" aria-label="Team roster">
+    <aside className="rounded-[22px] border border-hairline bg-surface/85 px-4 py-4 shadow-card sm:px-5" aria-label="Team roster">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="shrink-0">
           <p className="text-meta font-extrabold uppercase tracking-[.13em] text-accent-text">At the table</p>
@@ -65,6 +65,6 @@ export function Roster() {
           })}
         </ul>
       </div>
-    </section>
+    </aside>
   );
 }
