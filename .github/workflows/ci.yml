@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
@@ -37,4 +41,28 @@ jobs:
         run: pnpm -F @pointe/worker test
 
       - name: Run web tests
-        run: pnpm -F @pointe/web test
+        id: web-tests
+        shell: bash
+        run: |
+          set +e
+          pnpm -F @pointe/web test > /tmp/pointe-web-tests.log 2>&1
+          code=$?
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report web test failure
+        if: steps.web-tests.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          {
+            echo '### Temporary CI diagnostic'
+            echo
+            echo '```text'
+            tail -n 160 /tmp/pointe-web-tests.log
+            echo '```'
+          } > /tmp/pointe-web-tests-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/pointe-web-tests-comment.md
+          exit 1
