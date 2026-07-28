@@ -91,6 +91,21 @@ body::after {
   z-index: 9999;
 }
 
+/* The estimate hand is laid out like physical cards while remaining a native
+ * radio group. Horizontal scrolling keeps every value reachable on small screens. */
+.pointe-vote-card {
+  transform: rotate(var(--card-rotation, 0deg)) translateY(var(--card-lift, 0px));
+  transform-origin: 50% 115%;
+}
+
+.pointe-vote-card:hover {
+  transform: rotate(var(--card-rotation, 0deg)) translateY(calc(var(--card-lift, 0px) - 10px)) scale(1.025);
+}
+
+.pointe-vote-card[data-selected='true'] {
+  transform: rotate(var(--card-rotation, 0deg)) translateY(calc(var(--card-lift, 0px) - 22px)) scale(1.04);
+}
+
 /* ============================================================
    ANIMATION KEYFRAMES (Spec stubs — Increment 7 replaces the
    reveal sequence with the 5-phase RAF choreography)
@@ -164,4 +179,9 @@ body::after {
  * The count-up random cycle (Increment 7) MUST check this before starting. */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .pointe-vote-card,
+  .pointe-vote-card:hover,
+  .pointe-vote-card[data-selected='true'] {
+    transform: none;
+  }
 }
