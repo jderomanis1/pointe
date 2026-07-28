@@ -111,7 +111,12 @@ export function VotingStage({ story }: { story: Story }) {
                 {splitOpen ? 'Cancel split' : 'Split'}
               </Button>
               {story.state === 'active' ? (
-                <Button variant="ghost" size="sm" onClick={() => send('SKIP_STORY', { storyId: story.id })}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Skip story"
+                  onClick={() => send('SKIP_STORY', { storyId: story.id })}
+                >
                   Skip
                 </Button>
               ) : null}
