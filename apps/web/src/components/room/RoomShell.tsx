@@ -21,7 +21,7 @@ function ConnectionStatus() {
   const status = useRoomStore((s) => s.connection);
   const connected = status === 'connected';
   const reconnecting = status === 'connecting' || status === 'reconnecting';
-  const label = connected ? 'Live' : reconnecting ? 'Reconnecting' : 'Offline';
+  const label = connected ? 'Connected' : reconnecting ? 'Reconnecting' : 'Offline';
 
   return (
     <span
