@@ -1,7 +1,7 @@
 {
-  "name": "Pointe Planning Poker",
+  "name": "Pointe Live Planning Poker",
   "short_name": "Pointe",
-  "description": "Free planning poker and collaborative retrospectives for agile teams.",
+  "description": "Free live planning poker for agile teams with immediate voting, private cards, facilitator reveal, and one-click round reset.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
