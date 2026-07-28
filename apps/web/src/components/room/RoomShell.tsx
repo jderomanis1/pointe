@@ -90,7 +90,7 @@ function AutoRoundController({ isHost }: { isHost: boolean }) {
       return;
     }
 
-    const next = stories.find((story) => story.state === 'pending');
+    const next = stories.find((story) => story.state === 'pending' && isAutoRoundText(story.text));
     if (!next || openedIds.current.has(next.id)) return;
     openedIds.current.add(next.id);
     send('OPEN_VOTING', { storyId: next.id });
