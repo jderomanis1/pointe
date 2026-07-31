@@ -1,5 +1,15 @@
+import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
-import { devices, expect, test, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import {
+  devices,
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+  type TestInfo,
+} from '@playwright/test';
 
 type BrowserSignals = {
   consoleErrors: string[];
@@ -86,10 +96,10 @@ async function createRoom(page: Page, hostName: string): Promise<string> {
 }
 
 async function joinRoom(
-  browser: Parameters<typeof test>[0] extends never ? never : any,
+  browser: Browser,
   slug: string,
   name: string,
-  contextOptions: Record<string, unknown>,
+  contextOptions: BrowserContextOptions,
 ): Promise<Participant> {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
@@ -124,9 +134,9 @@ async function runRound(
   }
 
   for (const viewer of participants) {
-    for (const participant of participants) {
-      await expect(seat(viewer.page, participant.name)).toHaveAttribute('data-voted', 'true');
-      await expect(seat(viewer.page, participant.name)).not.toContainText(values[participants.indexOf(participant)]);
+    for (let index = 0; index < participants.length; index += 1) {
+      await expect(seat(viewer.page, participants[index].name)).toHaveAttribute('data-voted', 'true');
+      await expect(seat(viewer.page, participants[index].name)).not.toContainText(values[index]);
     }
   }
 
@@ -205,10 +215,10 @@ test.describe('production playability', () => {
 
     await runRound(host, [alice, bob], ['5', '8', '13'], 2, testInfo);
     await hostPage.getByRole('button', { name: 'Vote again' }).click();
+    await expectActionSize(alice.page, 'Cast estimate');
+    await expectActionSize(bob.page, 'Cast estimate');
     await runRound(host, [alice, bob], ['1', '2', '3'], 3, testInfo);
 
-    await expectActionSize(alice.page, 'Update vote');
-    await expectActionSize(bob.page, 'Update vote');
     await expectCleanBrowser(hostSignals, testInfo);
     await expectCleanBrowser(aliceSignals, testInfo);
     await expectCleanBrowser(bobSignals, testInfo);
@@ -306,7 +316,9 @@ test.describe('production security posture', () => {
     const attacker = await joinRoom(browser, slug, payload, devices['Pixel 7']);
 
     await expect(hostPage.getByText(payload, { exact: true })).toBeVisible();
-    const executed = await hostPage.evaluate(() => Boolean((window as typeof window & { __pointeXss?: number }).__pointeXss));
+    const executed = await hostPage.evaluate(() => Boolean(
+      (globalThis as typeof globalThis & { __pointeXss?: number }).__pointeXss,
+    ));
     expect(executed).toBe(false);
     expect(await hostPage.locator('img[src="x"]').count()).toBe(0);
     await attachScreenshot(hostPage, testInfo, 'xss-name-probe');
