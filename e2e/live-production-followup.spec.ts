@@ -56,7 +56,7 @@ test('iPhone-width landing and room controls are usable', async ({ browser }, te
   await screenshot(page, testInfo, 'iphone-landing');
 
   await createRoom(page, 'iPhone Host');
-  const radios = page.getByRole('radio');
+  const radios = page.getByRole('radiogroup', { name: 'Story points' }).getByRole('radio');
   await expect(radios).toHaveCount(7);
   for (const value of ['1', '2', '3', '5', '8', '13', '21']) {
     const card = page.getByRole('radio', { name: value, exact: true });
