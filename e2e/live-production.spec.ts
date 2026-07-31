@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
 import {
   devices,
@@ -76,7 +75,7 @@ async function expectActionSize(page: Page, accessibleName: string): Promise<voi
 
 async function expectCleanBrowser(signals: BrowserSignals, testInfo: TestInfo): Promise<void> {
   await testInfo.attach('browser-signals.json', {
-    body: Buffer.from(JSON.stringify(signals, null, 2)),
+    body: JSON.stringify(signals, null, 2),
     contentType: 'application/json',
   });
   expect.soft(signals.pageErrors, 'uncaught browser errors').toEqual([]);
@@ -169,7 +168,7 @@ test.describe('production responsive UX/UI', () => {
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
       .analyze();
     await testInfo.attach('landing-accessibility.json', {
-      body: Buffer.from(JSON.stringify(accessibility.violations, null, 2)),
+      body: JSON.stringify(accessibility.violations, null, 2),
       contentType: 'application/json',
     });
     expect.soft(accessibility.violations, 'WCAG A/AA landing violations').toEqual([]);
@@ -270,7 +269,7 @@ test.describe('production security posture', () => {
       'frame-protection': headers['x-frame-options'] ?? (headers['content-security-policy']?.includes('frame-ancestors') ? 'CSP frame-ancestors' : undefined),
     };
     await testInfo.attach('security-headers.json', {
-      body: Buffer.from(JSON.stringify({ headers, requiredHeaders }, null, 2)),
+      body: JSON.stringify({ headers, requiredHeaders }, null, 2),
       contentType: 'application/json',
     });
     for (const [name, value] of Object.entries(requiredHeaders)) {
