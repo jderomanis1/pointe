@@ -1,20 +1,16 @@
 # S10.i.c2 — dev/CI wrangler config. Selected by the `dev:e2e` script
 # (`wrangler dev -c wrangler.dev.toml --port 8787 --ip 127.0.0.1 --local`).
-# The composed entry keeps the existing gated test routes and adds the
-# production retrospective API/DO surface for browser-level validation.
+# The dev entry keeps the gated test routes while exercising the same
+# planning-poker API and Durable Object used in production.
 
 name = "pointe-worker"
-main = "src/workerWithRetro.dev.ts"
+main = "src/worker.dev.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[durable_objects.bindings]]
 name = "ROOM"
 class_name = "Room"
-
-[[durable_objects.bindings]]
-name = "RETRO"
-class_name = "RetroRoom"
 
 [[migrations]]
 tag = "v1"
@@ -23,6 +19,10 @@ new_sqlite_classes = ["Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["RetroRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["RetroRoom"]
 
 [[kv_namespaces]]
 binding = "POINTE_SLUGS"

@@ -1,15 +1,11 @@
 name = "pointe-worker"
-main = "src/workerWithRetro.ts"
+main = "src/worker.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[durable_objects.bindings]]
 name = "ROOM"
 class_name = "Room"
-
-[[durable_objects.bindings]]
-name = "RETRO"
-class_name = "RetroRoom"
 
 [[migrations]]
 tag = "v1"
@@ -18,6 +14,10 @@ new_sqlite_classes = ["Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["RetroRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["RetroRoom"]
 
 [[routes]]
 pattern = "pointe.team/api/*"

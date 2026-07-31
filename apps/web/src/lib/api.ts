@@ -1,10 +1,7 @@
 import type {
   ApiError,
-  CreateRetroRequest,
-  CreateRetroResponse,
   CreateRoomRequest,
   CreateRoomResponse,
-  GetRetroResponse,
   GetRoomResponse,
 } from '@pointe/shared';
 
@@ -36,30 +33,8 @@ export async function getRoom(slug: string): Promise<ApiResult<GetRoomResponse>>
   return { ok: true, data: (await res.json()) as GetRoomResponse };
 }
 
-export async function createRetro(req: CreateRetroRequest): Promise<ApiResult<CreateRetroResponse>> {
-  const res = await fetch('/api/retros', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-    credentials: 'same-origin',
-  });
-  if (!res.ok) return readError(res, res.status);
-  return { ok: true, data: (await res.json()) as CreateRetroResponse };
-}
-
-export async function getRetro(slug: string): Promise<ApiResult<GetRetroResponse>> {
-  const res = await fetch(`/api/retros/${slug}`, { credentials: 'same-origin' });
-  if (!res.ok) return readError(res, res.status);
-  return { ok: true, data: (await res.json()) as GetRetroResponse };
-}
-
 /** Build the WS URL for a slug from the current page origin. wss in prod, ws in dev. */
 export function buildWsUrl(slug: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${window.location.host}/api/rooms/${slug}/ws`;
-}
-
-export function buildRetroWsUrl(slug: string): string {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/api/retros/${slug}/ws`;
 }
