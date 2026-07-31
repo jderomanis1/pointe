@@ -50,7 +50,7 @@ jobs:
               https://pointe.team/sitemap.xml || true)
 
             if [ "$health_status" = "200" ] \
-              && grep -Fq "Join the room. Pick a card. Keep moving." <<<"$homepage" \
+              && grep -Fq "Free Live Planning Poker for Agile Teams" <<<"$homepage" \
               && ! grep -Fq "/retro" <<<"$sitemap"; then
               cat /tmp/pointe-health.json
               exit 0
