@@ -29,6 +29,7 @@ import { addVoter, createRoom } from '../src/operations';
 import { withRoomInstance } from './helpers/pool';
 
 const HOST_ID = 'h-1';
+const HOST_RESUME_TOKEN = 'host-resume-token';
 const VOTER_ID = 'v-1';
 
 type Sock = {
@@ -60,7 +61,8 @@ function makeSock(state: DurableObjectState, attachment: unknown): Sock {
 function seedRoom(sql: SqlStorage): void {
   createRoom(sql, {
     roomId: 'r-1', slug: 'apt-sparrow-16', hostVoterId: HOST_ID,
-    hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'sync', now: 1_000,
+    hostDisplayName: 'Alice', hostResumeToken: HOST_RESUME_TOKEN,
+    deck: 'fibonacci', mode: 'sync', now: 1_000,
   });
   // Default to 'active' to match the original suite; lobby-premise test overrides.
   sql.exec(`UPDATE room SET state = 'active'`);
@@ -139,7 +141,10 @@ describe('host-vacancy — JOIN cancels the pending task', () => {
       const rejoin = makeSock(state, null);
       await room.webSocketMessage(rejoin.server, JSON.stringify({
         v: 1, type: 'JOIN_ROOM', id: 'c-rejoin', at: 0,
-        payload: { slug: 'apt-sparrow-16', resumeVoterId: HOST_ID, role: 'voter' },
+        payload: {
+          slug: 'apt-sparrow-16', resumeVoterId: HOST_ID,
+          resumeToken: HOST_RESUME_TOKEN, role: 'voter',
+        },
       }));
 
       // cancelTasksByType is fire-and-forget; let microtasks drain.

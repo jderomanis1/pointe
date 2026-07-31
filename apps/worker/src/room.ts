@@ -22,6 +22,9 @@ import {
   getAiSuggestion, putAiCache, requestCeruSuggestion, upsertAiSuggestion,
 } from './ai';
 import { recordAiRequested } from './metrics';
+import {
+  MAX_WS_MESSAGE_BYTES, MAX_WS_MESSAGES_PER_MINUTE, utf8ByteLength,
+} from './security';
 
 /** Grace window between host-disconnect and the host_vacant transition. */
 export const HOST_VACANT_GRACE_MS = 30_000;
@@ -48,6 +51,7 @@ type InitBody = {
   slug: string;
   hostVoterId: string;
   hostDisplayName: string;
+  hostResumeToken?: string;
   deck: DeckType;
   mode: RoomMode;
   customDeck?: string[];
@@ -130,22 +134,27 @@ export class Room {
   // ---- Hibernation handlers (skeleton — R2.ii replaces webSocketMessage) ----
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message !== 'string') {
+      await this.closeForProtocolViolation(ws, 1003, 'Text messages only');
+      return;
+    }
+    if (utf8ByteLength(message) > MAX_WS_MESSAGE_BYTES) {
+      await this.closeForProtocolViolation(ws, 1009, 'Message too large');
+      return;
+    }
+    if (!this.consumeSocketMessageBudget(ws)) {
+      await this.closeForProtocolViolation(ws, 1008, 'Message rate exceeded');
+      return;
+    }
+
     const envelopes = handleMessage(
       this.sql,
       ws,
       message,
       (changes, opts) => broadcast(this.ctx, changes, getHostVoterId(this.sql), opts),
-      // S7.ii fire-and-forget: deletes the row synchronously; alarm re-schedule
-      // is async (acceptable — stale alarm fires into an empty table → no-op).
       () => { void cancelTasksByType(this.ctx.storage, 'host_vacant'); },
-      // S7.iii: HOST_RECLAIMED fan-out for CLAIM_HOST / TRANSFER_HOST / reclaim.
       (type, payload) => { broadcastEnvelope(this.ctx, type, payload); },
-      // S8.ii.b: REQUEST_AI orchestration. The dispatcher's handler runs
-      // sync (cache check, rate check, accept); the API call happens here.
       this.aiOrchestrator(),
-      // S9.i.c2: OPEN_ASYNC arms the close alarm. Fire-and-forget — the
-      // alarm is in place in milliseconds; the scheduler multiplexes via
-      // MIN(at) so any pending host_vacant alarm is preserved.
       (closesAt) => {
         void scheduleTask(this.ctx.storage, 'async_close', closesAt, { closesAt });
       },
@@ -153,6 +162,31 @@ export class Room {
     for (const env of envelopes) {
       ws.send(JSON.stringify(env));
     }
+  }
+
+  private consumeSocketMessageBudget(ws: WebSocket, now: number = Date.now()): boolean {
+    let attachment: Record<string, unknown> = {};
+    try {
+      const raw = ws.deserializeAttachment();
+      if (raw && typeof raw === 'object') attachment = raw as Record<string, unknown>;
+    } catch {
+      attachment = {};
+    }
+    const previousStart = typeof attachment.messageWindowStart === 'number'
+      ? attachment.messageWindowStart : now;
+    const inWindow = now - previousStart < 60_000;
+    const windowStart = inWindow ? previousStart : now;
+    const previousCount = inWindow && typeof attachment.messageCount === 'number'
+      ? attachment.messageCount : 0;
+    const messageCount = previousCount + 1;
+    ws.serializeAttachment({ ...attachment, messageWindowStart: windowStart, messageCount });
+    return messageCount <= MAX_WS_MESSAGES_PER_MINUTE;
+  }
+
+  private async closeForProtocolViolation(ws: WebSocket, code: number, reason: string): Promise<void> {
+    try { ws.close(code, reason); } catch { /* already closing */ }
+    // Workerd does not call webSocketClose after a DO-initiated close.
+    await this.webSocketClose(ws, code, reason, false);
   }
 
   // ---- S8.ii.b — AI orchestration -----------------------------------------

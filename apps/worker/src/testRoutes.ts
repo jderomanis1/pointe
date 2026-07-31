@@ -47,7 +47,7 @@
  *     wouldn't close the WS until the 25s keepalive failed.
  */
 import type { DurableObjectNamespace, KVNamespace } from '@cloudflare/workers-types';
-import { lookupSlug } from './slug';
+import { isRoomSlug, lookupSlug } from './slug';
 
 export type TestRoutesEnv = {
   ROOM: DurableObjectNamespace;
@@ -86,31 +86,31 @@ export async function maybeHandleTestRoute(
   }
 
   // POST /api/__test/close/:slug — force the async-close alarm immediately.
-  const closeMatch = url.pathname.match(/^\/api\/__test\/close\/([a-z-]+-\d+)$/);
-  if (closeMatch && request.method === 'POST') {
+  const closeMatch = url.pathname.match(/^\/api\/__test\/close\/([^/]+)$/);
+  if (closeMatch && request.method === 'POST' && isRoomSlug(closeMatch[1])) {
     const slug = closeMatch[1];
     return await forceAsyncClose(slug, env);
   }
 
   // POST /api/__test/ai-ready/:slug — inject a deterministic ready AI
   // suggestion for the room's currently-active story.
-  const aiReadyMatch = url.pathname.match(/^\/api\/__test\/ai-ready\/([a-z-]+-\d+)$/);
-  if (aiReadyMatch && request.method === 'POST') {
+  const aiReadyMatch = url.pathname.match(/^\/api\/__test\/ai-ready\/([^/]+)$/);
+  if (aiReadyMatch && request.method === 'POST' && isRoomSlug(aiReadyMatch[1])) {
     const slug = aiReadyMatch[1];
     return await injectAiReady(slug, env);
   }
 
   // POST /api/__test/fire-vacancy/:slug — collapse the 30s host_vacant grace.
-  const fireVacancyMatch = url.pathname.match(/^\/api\/__test\/fire-vacancy\/([a-z-]+-\d+)$/);
-  if (fireVacancyMatch && request.method === 'POST') {
+  const fireVacancyMatch = url.pathname.match(/^\/api\/__test\/fire-vacancy\/([^/]+)$/);
+  if (fireVacancyMatch && request.method === 'POST' && isRoomSlug(fireVacancyMatch[1])) {
     const slug = fireVacancyMatch[1];
     return await fireHostVacancy(slug, env);
   }
 
   // POST /api/__test/drop-voter-sockets/:slug — server-side close on every
   // non-host WS, the deterministic stand-in for a voter network blip.
-  const dropMatch = url.pathname.match(/^\/api\/__test\/drop-voter-sockets\/([a-z-]+-\d+)$/);
-  if (dropMatch && request.method === 'POST') {
+  const dropMatch = url.pathname.match(/^\/api\/__test\/drop-voter-sockets\/([^/]+)$/);
+  if (dropMatch && request.method === 'POST' && isRoomSlug(dropMatch[1])) {
     const slug = dropMatch[1];
     return await dropVoterSockets(slug, env);
   }

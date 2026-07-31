@@ -154,9 +154,13 @@ describe('dispatcher.handleMessage — JOIN_ROOM (R2.iii)', () => {
   it('resume: same voterId reused; no duplicate row; connection reactivated', async () => {
     await withRoom((sql) => {
       seedRoom(sql);
-      addVoter(sql, { voterId: 'v-alice', displayName: 'Alice', now: NOW + 1 });
+      addVoter(sql, {
+        voterId: 'v-alice', displayName: 'Alice', resumeToken: 'resume-alice', now: NOW + 1,
+      });
       const { ws } = fakeWs();
-      const out = handleMessage(sql, ws, joinEnv('join-r', { slug: 's', resumeVoterId: 'v-alice', role: 'voter' }));
+      const out = handleMessage(sql, ws, joinEnv('join-r', {
+        slug: 's', resumeVoterId: 'v-alice', resumeToken: 'resume-alice', role: 'voter',
+      }));
       const snap = out[0].payload as RoomSnapshot;
       expect(snap.you.voterId).toBe('v-alice');
       expect(snap.voters.filter((v) => v.id === 'v-alice')).toHaveLength(1);

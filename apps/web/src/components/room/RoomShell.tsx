@@ -161,7 +161,7 @@ export function RoomShell({ slug }: { slug: string }) {
         </div>
       </header>
 
-      <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:gap-5 sm:px-6 sm:py-7">
         <HostVacantBanner />
         <ReplacedNotice />
         <Roster />

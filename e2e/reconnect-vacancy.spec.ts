@@ -41,6 +41,26 @@ test.describe('live room resilience', () => {
     await host.context.close();
   });
 
+  test('voter refresh resumes the same identity and retained vote', async ({ browser }) => {
+    const host = await createHostRoom(browser, { hostName: 'Helen' });
+    const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });
+
+    await castVote(alice.page, '5');
+    await expect(roster(host.page).filter({ hasText: 'Voters · 2' })).toBeVisible();
+    await expect(seatByName(host.page, 'Alice')).toHaveAttribute('data-voted', 'true');
+
+    await alice.page.reload();
+
+    await expect(alice.page.getByText('Connected')).toBeVisible();
+    await expect(alice.page.getByRole('button', { name: 'Update vote' })).toBeVisible();
+    await expect(alice.page.getByRole('radio', { name: '5', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await expect(roster(host.page).filter({ hasText: 'Voters · 2' })).toBeVisible();
+    await expect(roster(host.page).getByText('Alice')).toHaveCount(1);
+
+    await alice.context.close();
+    await host.context.close();
+  });
+
   test('a voter can claim facilitation and receives the live round controls', async ({ browser }) => {
     const host = await createHostRoom(browser, { hostName: 'Helen' });
     const alice = await joinAsVoter(browser, { slug: host.slug, name: 'Alice' });

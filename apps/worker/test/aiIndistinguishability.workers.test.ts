@@ -183,6 +183,7 @@ function normalize(envelopes: Envelope[]): unknown[] {
   }
   function walk(value: unknown, key?: string): unknown {
     if (typeof value === 'string') {
+      if (key === 'resumeToken') return 'RESUME_TOKEN';
       return UUID_RE.test(value) ? tok(value) : value;
     }
     if (typeof value === 'number') {

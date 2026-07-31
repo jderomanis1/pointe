@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { ClientMessageType, ErrorPayload, JoinRoomPayload } from '@pointe/shared';
+import type { ClientMessageType, ErrorPayload, JoinRoomPayload, RoomSnapshot } from '@pointe/shared';
 import { RoomWsClient } from '../ws/client';
 import { useRoomStore } from '../store/roomStore';
 
@@ -8,6 +8,8 @@ export type UseRoomClientArgs = {
   join: JoinRoomPayload;
   /** Surfaces logical server errors (NOT_HOST, ROOM_CLOSED, etc.). Socket stays open. */
   onError?: (err: ErrorPayload) => void;
+  /** Persists the server-issued opaque resume credential after JOIN. */
+  onSession?: (snapshot: RoomSnapshot) => void;
 };
 
 export type RoomClientApi = {
@@ -41,6 +43,7 @@ export function useRoomClient(args: UseRoomClientArgs): RoomClientApi {
         setConnection: (s) => useRoomStore.getState().setConnection(s),
       },
       onError: args.onError,
+      onSession: args.onSession,
     });
     clientRef.current = client;
     return () => {

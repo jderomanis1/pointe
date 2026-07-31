@@ -32,6 +32,7 @@ const baseParams = {
   slug: 'apt-sparrow-16',
   hostVoterId: 'host-1',
   hostDisplayName: 'Host',
+  hostResumeToken: 'host-resume-token',
   deck: 'fibonacci' as const,
   mode: 'sync' as const,
   now: NOW,
@@ -365,7 +366,7 @@ describe('operations (real DO SQLite)', () => {
     await withSql((sql) => {
       createRoom(sql, baseParams);
       const v = resumeOrAddVoter(sql, {
-        voterId: 'ignored', resumeVoterId: 'host-1',
+        voterId: 'ignored', resumeVoterId: 'host-1', resumeToken: 'host-resume-token',
         displayName: 'ignored-too', role: 'spectator', now: NOW + 5,
       });
       expect(v.id).toBe('host-1');

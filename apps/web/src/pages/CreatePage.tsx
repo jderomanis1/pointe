@@ -20,6 +20,7 @@ import { isRoomSlug } from '../lib/slug';
 export type CreateNavState = {
   wsUrl: string;
   voterId: string;
+  resumeToken?: string;
   displayName: string;
   asHost: true;
 };
@@ -66,6 +67,7 @@ export function CreatePage() {
     const navState: CreateNavState = {
       wsUrl: res.data.wsUrl,
       voterId: res.data.voterId,
+      resumeToken: res.data.resumeToken,
       displayName: trimmed,
       asHost: true,
     };
@@ -76,7 +78,7 @@ export function CreatePage() {
     e.preventDefault();
     const slug = roomSlugFromReference(joinReference);
     if (!slug) {
-      setJoinError('Enter a valid Pointe room link or code, such as calm-fox-42.');
+      setJoinError('Enter a valid Pointe room link or code.');
       return;
     }
     setJoinError(null);

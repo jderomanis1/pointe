@@ -9,7 +9,7 @@ export type RoomReadState = { room: Room; voters: Voter[]; stories: Story[]; vot
 
 // SQLite row shapes (snake_case mirrors of the spec entities).
 type RoomRow = { id: string; slug: string; deck: string; custom_deck: string | null; mode: string; async_window: string | null; state: string; host_voter_id: string | null; host_vacant_since: number | null; created_at: number; last_activity_at: number };
-type VoterRow = { id: string; display_name: string; role: string; connection_state: string; last_seen_at: number; joined_at: number };
+type VoterRow = { id: string; display_name: string; role: string; connection_state: string; last_seen_at: number; joined_at: number; resume_token: string | null };
 type StoryRow = { id: string; order_index: number; text: string; external_id: string | null; external_url: string | null; description: string | null; state: string; final_estimate: string | null; edited: number; split_parent_id: string | null; created_at: number; opened_at: number | null; revealed_at: number | null; needs_discussion: number };
 type VoteRow = { story_id: string; voter_id: string; points: string; confidence: number; submitted_at: number; updated_at: number };
 
@@ -18,12 +18,13 @@ export function createRoom(
   sql: SqlStorage,
   params: {
     roomId: string; slug: string; hostVoterId: string; hostDisplayName: string;
-    deck: DeckType; mode: RoomMode; customDeck?: string[]; now: number;
+    hostResumeToken?: string; deck: DeckType; mode: RoomMode; customDeck?: string[]; now: number;
   },
 ): Room {
   if (sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray().length > 0) {
     throw new Error('ROOM_ALREADY_EXISTS');
   }
+  const hostResumeToken = params.hostResumeToken ?? createResumeToken();
   sql.exec(
     `INSERT INTO room (id, slug, deck, custom_deck, mode, async_window, state,
       host_voter_id, host_vacant_since, created_at, last_activity_at)
@@ -33,9 +34,9 @@ export function createRoom(
     params.mode, params.hostVoterId, params.now, params.now,
   );
   sql.exec(
-    `INSERT INTO voter (id, display_name, role, connection_state, last_seen_at, joined_at)
-     VALUES (?, ?, 'host', 'connected', ?, ?)`,
-    params.hostVoterId, params.hostDisplayName, params.now, params.now,
+    `INSERT INTO voter (id, display_name, role, connection_state, last_seen_at, joined_at, resume_token)
+     VALUES (?, ?, 'host', 'connected', ?, ?, ?)`,
+    params.hostVoterId, params.hostDisplayName, params.now, params.now, hostResumeToken,
   );
   return {
     id: params.roomId,
@@ -53,15 +54,16 @@ export function createRoom(
 /** Add a non-host voter to the existing room. */
 export function addVoter(
   sql: SqlStorage,
-  params: { voterId: string; displayName: string; role?: VoterRole; now: number },
+  params: { voterId: string; displayName: string; role?: VoterRole; resumeToken?: string; now: number },
 ): Voter {
   const roomRow = sql.exec<{ id: string }>('SELECT id FROM room LIMIT 1').toArray()[0];
   if (!roomRow) throw new Error('ROOM_NOT_FOUND');
   const role: VoterRole = params.role ?? 'voter';
+  const resumeToken = params.resumeToken ?? createResumeToken();
   sql.exec(
-    `INSERT INTO voter (id, display_name, role, connection_state, last_seen_at, joined_at)
-     VALUES (?, ?, ?, 'connected', ?, ?)`,
-    params.voterId, params.displayName, role, params.now, params.now,
+    `INSERT INTO voter (id, display_name, role, connection_state, last_seen_at, joined_at, resume_token)
+     VALUES (?, ?, ?, 'connected', ?, ?, ?)`,
+    params.voterId, params.displayName, role, params.now, params.now, resumeToken,
   );
   return {
     id: params.voterId,
@@ -79,23 +81,42 @@ export function addVoter(
  * On resume: connection_state → 'connected', last_seen_at updated; existing role/displayName kept.
  * On new: requires `displayName`; throws DISPLAY_NAME_REQUIRED otherwise.
  */
+export function createResumeToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+export type ResumableVoter = Voter & { resumeToken: string };
+
 export function resumeOrAddVoter(
   sql: SqlStorage,
   params: {
     voterId: string;
     resumeVoterId?: string;
+    resumeToken?: string;
     displayName?: string;
     role: VoterRole;
     now: number;
   },
-): Voter {
+): ResumableVoter {
   if (params.resumeVoterId) {
     const existing = sql
-      .exec<{ id: string; display_name: string; role: string; joined_at: number }>(
-        'SELECT id, display_name, role, joined_at FROM voter WHERE id = ?',
+      .exec<{ id: string; display_name: string; role: string; joined_at: number; resume_token: string | null }>(
+        'SELECT id, display_name, role, joined_at, resume_token FROM voter WHERE id = ?',
         params.resumeVoterId,
       ).toArray()[0];
     if (existing) {
+      let resumeToken = existing.resume_token;
+      if (resumeToken !== null) {
+        if (!params.resumeToken || params.resumeToken !== resumeToken) {
+          throw new Error('INVALID_RESUME_TOKEN');
+        }
+      } else {
+        // One-time rolling upgrade for rooms created before resume tokens existed.
+        resumeToken = createResumeToken();
+        sql.exec('UPDATE voter SET resume_token = ? WHERE id = ?', resumeToken, existing.id);
+      }
       sql.exec(
         `UPDATE voter SET connection_state = 'connected', last_seen_at = ? WHERE id = ?`,
         params.now, params.resumeVoterId,
@@ -105,16 +126,28 @@ export function resumeOrAddVoter(
       return {
         id: existing.id, roomId: room.id, displayName: existing.display_name,
         role: existing.role as VoterRole, connectionState: 'connected',
-        lastSeenAt: params.now, joinedAt: existing.joined_at,
+        lastSeenAt: params.now, joinedAt: existing.joined_at, resumeToken,
       };
     }
-    // resumeVoterId given but not found → fall through to new voter.
   }
   if (!params.displayName) throw new Error('DISPLAY_NAME_REQUIRED');
-  return addVoter(sql, {
+  const resumeToken = createResumeToken();
+  const voter = addVoter(sql, {
     voterId: params.voterId, displayName: params.displayName,
-    role: params.role, now: params.now,
+    role: params.role, resumeToken, now: params.now,
   });
+  return { ...voter, resumeToken };
+}
+
+export function getOrCreateVoterResumeToken(sql: SqlStorage, voterId: string): string {
+  const row = sql
+    .exec<{ resume_token: string | null }>('SELECT resume_token FROM voter WHERE id = ?', voterId)
+    .toArray()[0];
+  if (!row) throw new Error('VOTER_NOT_FOUND');
+  if (row.resume_token) return row.resume_token;
+  const token = createResumeToken();
+  sql.exec('UPDATE voter SET resume_token = ? WHERE id = ?', token, voterId);
+  return token;
 }
 
 /** R3.i: focused read for SI-02 host enforcement (avoids loading full state). */

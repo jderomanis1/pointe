@@ -22,7 +22,7 @@ export async function createHostRoom(
   await page.goto('/');
   await page.getByLabel('Your name').fill(opts.hostName);
   await page.getByRole('button', { name: 'Create Session' }).click();
-  await page.waitForURL(/\/[a-z]+-[a-z]+-\d+$/);
+  await page.waitForURL(/\/[a-z]+-[a-z]+-[a-z]+-[0-9a-f]{24}$/);
   const slug = new URL(page.url()).pathname.replace(/^\//, '');
   await expect(page.getByRole('button', { name: 'Execute Reveal' })).toBeVisible();
   return { page, context, slug };

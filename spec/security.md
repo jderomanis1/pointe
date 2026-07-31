@@ -121,3 +121,16 @@ unless the documented static-asset handling for split-version traffic is
 applied first. Treat **"enable gradual rollouts"** as a change that requires
 reading Cloudflare's *Gradual rollouts* guidance on static assets **before**
 flipping it on — not after the first broken-SPA report.
+
+## 4. 2026-07 production hardening
+
+- New room links contain a 96-bit cryptographic capability suffix while legacy
+  word-word-number links remain readable during their existing KV lifetime.
+- Participant refresh resume requires both voter id and a random, room-scoped
+  resume token persisted in session storage and verified by the room DO.
+- Browser WebSocket handshakes reject a present non-allowlisted Origin.
+- HTTP create bodies are capped at 16 KiB and custom decks are normalized and bounded.
+- WebSocket frames are text-only, capped at 64 KiB, and limited to 100 messages
+  per socket per minute using hibernation-persisted attachment counters.
+- Static and API responses add HSTS, CSP/frame protection, nosniff, referrer,
+  permissions, opener, and resource-isolation headers.

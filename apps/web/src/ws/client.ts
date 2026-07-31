@@ -36,6 +36,8 @@ export type WsClientOptions = {
   store: StoreHooks;
   /** Called when the server sends ERROR — logical error, socket stays open. */
   onError?: (err: ErrorPayload, envelope: Envelope) => void;
+  /** Called after each authoritative JOIN snapshot. */
+  onSession?: (snapshot: RoomSnapshot) => void;
   /** Base delay (ms) before first reconnect attempt. Default 500. */
   baseBackoffMs?: number;
   /** Upper cap (ms) on the exponential backoff. Default 15000. */
@@ -64,16 +66,20 @@ const WS_OPEN = 1; // WebSocket.OPEN — matches both browser and node ws
  *  - disconnect() → intentional, no reconnect.
  */
 export class RoomWsClient {
-  private opts: Required<Omit<WsClientOptions, 'onError'>> & Pick<WsClientOptions, 'onError'>;
+  private opts: Required<Omit<WsClientOptions, 'onError' | 'onSession'>>
+    & Pick<WsClientOptions, 'onError' | 'onSession'>;
   private ws: WsLike | null = null;
   private intentional = false;
   private voterId: string | null = null;
+  private resumeToken: string | null = null;
   private attempt = 0;
   private outbound: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: WsClientOptions) {
+    this.voterId = opts.join.resumeVoterId ?? null;
+    this.resumeToken = opts.join.resumeToken ?? null;
     this.opts = {
       baseBackoffMs: 500,
       maxBackoffMs: 15_000,
@@ -139,6 +145,7 @@ export class RoomWsClient {
     const join: JoinRoomPayload = {
       ...this.opts.join,
       ...(this.voterId ? { resumeVoterId: this.voterId } : {}),
+      ...(this.resumeToken ? { resumeToken: this.resumeToken } : {}),
     };
     this.send('JOIN_ROOM', join);
     // Queue flush waits until after JOIN so re-cast votes etc. arrive after the rebind.
@@ -160,6 +167,8 @@ export class RoomWsClient {
       case 'SNAPSHOT_RESPONSE': {
         const snap = env.payload as RoomSnapshot;
         this.voterId = snap.you.voterId;
+        this.resumeToken = snap.you.resumeToken ?? this.resumeToken;
+        this.opts.onSession?.(snap);
         this.opts.store.hydrate(snap);
         this.opts.store.setConnection('connected');
         this.attempt = 0; // backoff resets on successful JOIN

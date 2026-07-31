@@ -175,6 +175,8 @@ export type CreateRoomResponse = {
   slug: string;
   /** The host's voterId — also set as the `pointe_session` cookie. */
   voterId: string;
+  /** Opaque credential used with voterId to securely resume after refresh. */
+  resumeToken?: string;
   /** Constructed WebSocket URL. The /ws endpoint itself lands in R2. */
   wsUrl: string;
 };
@@ -288,8 +290,10 @@ export type JoinRoomPayload = {
   slug: string;
   /** Required for a NEW voter; ignored on resume. */
   displayName?: string;
-  /** From the cookie / prior session. */
+  /** From the prior browser session. Never sufficient without resumeToken. */
   resumeVoterId?: string;
+  /** Opaque room-scoped credential paired with resumeVoterId. */
+  resumeToken?: string;
   /** Host is assigned by room creation, not claimed here. */
   role: 'voter' | 'spectator';
 };
@@ -301,8 +305,8 @@ export type RoomSnapshot = {
   room: Room;
   voters: Voter[];
   stories: SnapshotStory[];
-  /** Server-bound identity (SI-01). */
-  you: { voterId: string; role: VoterRole };
+  /** Server-bound identity (SI-01) plus refresh-safe resume credential. */
+  you: { voterId: string; role: VoterRole; resumeToken?: string };
 };
 
 // DELTA broadcast (R2.iv). Per-recipient projection enforces anti-anchoring:

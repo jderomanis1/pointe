@@ -71,49 +71,29 @@ function call(
 // ---- Race 1: slug collision on creation ---------------------------------
 
 describe('Race 1 — slug collision on creation (spec §13.1)', () => {
-  it('reserveSlug retries on collision and returns a fresh slug', async () => {
-    // Pre-seed the KV with whatever the FIRST attempt would generate, so
-    // the retry path actually fires; the second attempt picks a different
-    // pair (Math.random) and wins. To make this deterministic without
-    // mocking Math.random we instead force every possible slug except one
-    // — too large. Use Math.random seeding via spy.
+  it('reserveSlug retries on collision and returns a fresh secure slug', async () => {
     const kv = createMockKv();
-    const seq = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99];
-    let i = 0;
-    const origRandom = Math.random;
-    Math.random = () => seq[Math.min(i++, seq.length - 1)];
-    try {
-      // First call mints a slug and writes it.
-      const first = await reserveSlug(kv, 'room-A', 5);
-      expect(first).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
-      // Second call — random sequence now produces a different slug; previous
-      // is still in KV from first call, so the retry-on-existing path runs
-      // for any collision; this room gets its own slug.
-      const second = await reserveSlug(kv, 'room-B', 5);
-      expect(second).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
-      expect(second).not.toBe(first);
-    } finally {
-      Math.random = origRandom;
-    }
+    const collision = `calm-fox-owl-${'a'.repeat(24)}`;
+    const fresh = `calm-fox-hawk-${'b'.repeat(24)}`;
+    await kv.put(collision, 'existing-room');
+    const candidates = [collision, fresh];
+    let index = 0;
+    const slug = await reserveSlug(
+      kv,
+      'room-B',
+      5,
+      () => candidates[Math.min(index++, candidates.length - 1)],
+    );
+    expect(slug).toBe(fresh);
   });
 
   it('exhausts after maxRetries collisions → throws SLUG_GENERATION_EXHAUSTED', async () => {
-    // Pin every retry to the same generated slug → all 5 collide → throws.
     const kv = createMockKv();
-    const origRandom = Math.random;
-    Math.random = () => 0.0; // deterministic: same adj+noun+number every call
-    try {
-      const firstSlug = await reserveSlug(kv, 'room-X', 1);
-      // Pre-seed the KV with the same slug under a different room id, so
-      // the retry loop sees it as "taken" by some other room.
-      // (firstSlug is already in KV — reserveSlug just wrote it.) Now any
-      // further reserve attempts collide and the post-put re-read sees the
-      // existing owner, not us → exhausts.
-      await expect(reserveSlug(kv, 'room-Y', 5)).rejects.toThrow('SLUG_GENERATION_EXHAUSTED');
-      expect(firstSlug).toMatch(/^[a-z]+-[a-z]+-\d{2}$/);
-    } finally {
-      Math.random = origRandom;
-    }
+    const collision = `sure-ibex-hare-${'c'.repeat(24)}`;
+    await kv.put(collision, 'existing-room');
+    await expect(
+      reserveSlug(kv, 'room-Y', 5, () => collision),
+    ).rejects.toThrow('SLUG_GENERATION_EXHAUSTED');
   });
 });
 
