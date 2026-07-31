@@ -89,11 +89,14 @@ jobs:
           }
 
           fetch_with_retry "https://pointe.team/" /tmp/pointe-home.html
-          fetch_with_retry "https://pointe.team/retro" /tmp/pointe-retro.html
           fetch_with_retry "https://pointe.team/robots.txt" /tmp/pointe-robots.txt
           fetch_with_retry "https://pointe.team/sitemap.xml" /tmp/pointe-sitemap.xml
 
           grep -Fq "Free Live Planning Poker for Agile Teams" /tmp/pointe-home.html
-          grep -Fq "Free Live Planning Poker for Agile Teams" /tmp/pointe-retro.html
           grep -Fq "Sitemap: https://pointe.team/sitemap.xml" /tmp/pointe-robots.txt
-          grep -Fq "https://pointe.team/retro" /tmp/pointe-sitemap.xml
+          grep -Fq "https://pointe.team/" /tmp/pointe-sitemap.xml
+
+          if grep -Fq "https://pointe.team/retro" /tmp/pointe-sitemap.xml; then
+            echo "Retrospective URL is still present in the production sitemap" >&2
+            exit 1
+          fi
