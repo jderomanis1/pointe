@@ -36,7 +36,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Apply implementation
-        run: python3 scripts/apply-security-hardening.py
+        run: |
+          python3 scripts/apply-security-hardening.py
+          python3 scripts/fix-hardening-lint.py
 
       - name: Refresh dependency lockfile
         run: pnpm install --lockfile-only
@@ -62,7 +64,7 @@ jobs:
           pnpm test:e2e
 
       - name: Remove one-time implementation scaffold
-        run: rm scripts/apply-security-hardening.py .github/workflows/apply-security-hardening.yml
+        run: rm scripts/apply-security-hardening.py scripts/fix-hardening-lint.py .github/workflows/apply-security-hardening.yml
 
       - name: Commit hardened implementation
         run: |
