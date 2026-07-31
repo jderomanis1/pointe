@@ -1,18 +1,17 @@
-/** Frontend slug guard. Matches `adjective-noun-NN` and rejects reserved words. */
+/** Frontend guard for secure and legacy Pointe room links. */
 
-const SLUG_PATTERN = /^[a-z]+-[a-z]+-\d{2}$/;
+const LEGACY_SLUG_PATTERN = /^[a-z]+-[a-z]+-\d{2}$/;
+const SECURE_SLUG_PATTERN = /^[a-z]+-[a-z]+-[a-z]+-[0-9a-f]{24}$/;
 
-/** Reserved at the URL root — these own static pages or namespaces. */
 const RESERVED = new Set([
   'about', 'preview', 'docs', 'pricing', 'blog', 'help', 'api', 'admin', 'r',
 ]);
 
-export function isReservedPath(s: string): boolean {
-  return RESERVED.has(s);
+export function isReservedPath(value: string): boolean {
+  return RESERVED.has(value);
 }
 
-export function isRoomSlug(s: string): boolean {
-  if (!SLUG_PATTERN.test(s)) return false;
-  if (RESERVED.has(s)) return false;
-  return true;
+export function isRoomSlug(value: string): boolean {
+  if (RESERVED.has(value)) return false;
+  return LEGACY_SLUG_PATTERN.test(value) || SECURE_SLUG_PATTERN.test(value);
 }

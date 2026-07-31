@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import type { ErrorPayload, JoinRoomPayload } from '@pointe/shared';
+import type { ErrorPayload, JoinRoomPayload, RoomSnapshot } from '@pointe/shared';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { getRoom, buildWsUrl } from '../lib/api';
@@ -9,6 +9,7 @@ import { useRoomStore } from '../store/roomStore';
 import { RoomShell } from '../components/room/RoomShell';
 import { RoomClientProvider } from '../components/room/RoomClientContext';
 import type { CreateNavState } from './CreatePage';
+import { clearRoomSession, loadRoomSession, saveRoomSession } from '../lib/session';
 
 type JoinRole = 'voter' | 'spectator';
 
@@ -40,16 +41,33 @@ export function RoomPage({ slug }: { slug: string }) {
   }, [slug]);
 
   useEffect(() => {
-    if (probe.kind !== 'found' || joinParams || !navState?.asHost) return;
-    setJoinParams({
-      wsUrl: buildWsUrl(slug),
-      join: {
-        slug,
-        displayName: navState.displayName,
-        resumeVoterId: navState.voterId,
-        role: 'voter',
-      },
-    });
+    if (probe.kind !== 'found' || joinParams) return;
+    if (navState?.asHost) {
+      setJoinParams({
+        wsUrl: buildWsUrl(slug),
+        join: {
+          slug,
+          displayName: navState.displayName,
+          resumeVoterId: navState.voterId,
+          resumeToken: navState.resumeToken,
+          role: 'voter',
+        },
+      });
+      return;
+    }
+    const saved = loadRoomSession(slug);
+    if (saved) {
+      setJoinParams({
+        wsUrl: buildWsUrl(slug),
+        join: {
+          slug,
+          displayName: saved.displayName,
+          resumeVoterId: saved.voterId,
+          resumeToken: saved.resumeToken,
+          role: saved.role,
+        },
+      });
+    }
   }, [probe.kind, joinParams, navState, slug]);
 
   if (probe.kind === 'loading') return <PageShell><StatusCard>Opening <Slug slug={slug} />…</StatusCard></PageShell>;
@@ -213,9 +231,29 @@ function RoleOption({ active, onSelect, title, description }: {
 
 function RoomConnected({ wsUrl, join, slug }: { wsUrl: string; join: JoinRoomPayload; slug: string }) {
   const [serverError, setServerError] = useState<ErrorPayload | null>(null);
+  const rememberSession = useCallback((snapshot: RoomSnapshot) => {
+    const resumeToken = snapshot.you.resumeToken;
+    const me = snapshot.voters.find((voter) => voter.id === snapshot.you.voterId);
+    if (!resumeToken || !me) return;
+    saveRoomSession(slug, {
+      voterId: snapshot.you.voterId,
+      resumeToken,
+      displayName: me.displayName,
+      role: me.role === 'spectator' ? 'spectator' : 'voter',
+    });
+  }, [slug]);
   const args = useMemo(() => ({
-    wsUrl, join, onError: (e: ErrorPayload) => setServerError(e),
-  }), [wsUrl, join]);
+    wsUrl,
+    join,
+    onSession: rememberSession,
+    onError: (error: ErrorPayload) => {
+      setServerError(error);
+      if (error.code === 'INVALID_RESUME_TOKEN') {
+        clearRoomSession(slug);
+        window.setTimeout(() => window.location.reload(), 0);
+      }
+    },
+  }), [wsUrl, join, rememberSession, slug]);
   const api = useRoomClient(args);
 
   const connection = useRoomStore((s) => s.connection);

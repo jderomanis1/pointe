@@ -12,7 +12,7 @@ import {
 import {
   addStory, castVote, commitStory, editStory, insertAuditEvent,
   maybeReturnToReviewAfterCommit, openAsyncWindow, openVoting, revealVotes,
-  resumeOrAddVoter, getHostVoterId, getRoomLifecycle, getRoomState, getVoterById,
+  resumeOrAddVoter, getOrCreateVoterResumeToken, getHostVoterId, getRoomLifecycle, getRoomState, getVoterById,
   setRoomHost, skipStory, splitStory,
 } from './operations';
 import { getAttachment } from './broadcast';
@@ -628,22 +628,46 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
   const payload = envelope.payload;
 
   let voterId: string;
+  let resumeToken: string;
   let didBind = false;
+  let priorAttachment: Record<string, unknown> = {};
+  try {
+    const raw = ws.deserializeAttachment();
+    if (raw && typeof raw === 'object') priorAttachment = raw as Record<string, unknown>;
+  } catch {
+    priorAttachment = {};
+  }
+
   if (ctx.voterId) {
-    // Re-JOIN on a live socket — reuse the existing binding.
+    // Re-JOIN on a live socket — reuse the existing server-bound identity.
     voterId = ctx.voterId;
+    const attachment = getAttachment(ws);
+    resumeToken = attachment?.resumeToken ?? getOrCreateVoterResumeToken(sql, voterId);
+    ws.serializeAttachment({
+      ...priorAttachment,
+      voterId,
+      role: attachment?.role ?? getVoterById(sql, voterId)?.role ?? 'voter',
+      resumeToken,
+    });
   } else {
     try {
       const voter = resumeOrAddVoter(sql, {
         voterId: crypto.randomUUID(),
         resumeVoterId: payload.resumeVoterId,
+        resumeToken: payload.resumeToken,
         displayName: payload.displayName,
         role: payload.role,
         now: Date.now(),
       });
       voterId = voter.id;
-      // SI-01: bind identity on the socket. Survives hibernation.
-      ws.serializeAttachment({ voterId: voter.id, role: voter.role });
+      resumeToken = voter.resumeToken;
+      // SI-01: bind identity + resume credential on the socket. Survives hibernation.
+      ws.serializeAttachment({
+        ...priorAttachment,
+        voterId: voter.id,
+        role: voter.role,
+        resumeToken,
+      });
       didBind = true;
     } catch (err) {
       const code = err instanceof Error ? err.message : 'INTERNAL';
@@ -671,7 +695,7 @@ function handleJoinRoom(ctx: HandlerCtx): Envelope[] {
     }
   }
 
-  const snapshot = buildSnapshot(sql, voterId);
+  const snapshot = buildSnapshot(sql, voterId, resumeToken);
 
   // Broadcast voter_joined to OTHER sockets (skip the joiner — they have the snapshot).
   // Re-JOIN on an already-bound socket does not re-announce.
@@ -1001,7 +1025,7 @@ function handleShareAi(ctx: HandlerCtx): Envelope[] {
 }
 
 /** Build the snapshot with anti-anchoring + scope limit. */
-function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
+function buildSnapshot(sql: SqlStorage, voterId: string, resumeToken: string): RoomSnapshot {
   const state = getRoomState(sql);
   const me = state.voters.find((v) => v.id === voterId);
   if (!me) throw new Error('VOTER_NOT_FOUND');
@@ -1045,7 +1069,7 @@ function buildSnapshot(sql: SqlStorage, voterId: string): RoomSnapshot {
     room: state.room,
     voters: state.voters,
     stories: snapStories,
-    you: { voterId, role: me.role as VoterRole },
+    you: { voterId, role: me.role as VoterRole, resumeToken },
   };
 }
 
@@ -1102,6 +1126,7 @@ function isJoinRoomPayload(p: unknown): p is JoinRoomPayload {
   if (o.slug !== undefined && typeof o.slug !== 'string') return false;
   if (o.displayName !== undefined && typeof o.displayName !== 'string') return false;
   if (o.resumeVoterId !== undefined && typeof o.resumeVoterId !== 'string') return false;
+  if (o.resumeToken !== undefined && typeof o.resumeToken !== 'string') return false;
   return o.role === 'voter' || o.role === 'spectator';
 }
 

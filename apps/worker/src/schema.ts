@@ -50,8 +50,12 @@ export function initSchema(sql: SqlStorage): void {
     role             TEXT NOT NULL,
     connection_state TEXT NOT NULL,
     last_seen_at     INTEGER NOT NULL,
-    joined_at        INTEGER NOT NULL
+    joined_at        INTEGER NOT NULL,
+    resume_token     TEXT
   )`);
+  migrateVoterResumeToken(sql);
+  sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_voter_resume_token
+    ON voter(resume_token) WHERE resume_token IS NOT NULL`);
 
   sql.exec(`CREATE TABLE IF NOT EXISTS vote (
     story_id     TEXT NOT NULL,
@@ -161,5 +165,16 @@ function migrateStoryNeedsDiscussion(sql: SqlStorage): void {
     .map((r) => r.name);
   if (!cols.includes('needs_discussion')) {
     sql.exec(`ALTER TABLE story ADD COLUMN needs_discussion INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
+/** Add the opaque participant resume credential to rooms created before this deploy. */
+function migrateVoterResumeToken(sql: SqlStorage): void {
+  const cols = sql
+    .exec<{ name: string }>(`PRAGMA table_info(voter)`)
+    .toArray()
+    .map((row) => row.name);
+  if (!cols.includes('resume_token')) {
+    sql.exec(`ALTER TABLE voter ADD COLUMN resume_token TEXT`);
   }
 }

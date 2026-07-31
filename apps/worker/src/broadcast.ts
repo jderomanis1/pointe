@@ -6,7 +6,7 @@ import { PROTOCOL_VERSION } from '@pointe/shared';
 import { projectAiForRecipient } from './ai';
 
 /** SI-01 binding shape stored via `ws.serializeAttachment`. */
-export type SocketAttachment = { voterId: string; role: VoterRole };
+export type SocketAttachment = { voterId: string; role: VoterRole; resumeToken?: string };
 
 /** Pull the binding off a socket, or null if not yet JOINed. */
 export function getAttachment(ws: WebSocket): SocketAttachment | null {
@@ -19,9 +19,13 @@ export function getAttachment(ws: WebSocket): SocketAttachment | null {
       'role' in att &&
       typeof (att as { voterId: unknown }).voterId === 'string'
     ) {
-      const a = att as { voterId: string; role: unknown };
+      const a = att as { voterId: string; role: unknown; resumeToken?: unknown };
       if (a.role === 'voter' || a.role === 'spectator' || a.role === 'host') {
-        return { voterId: a.voterId, role: a.role };
+        return {
+          voterId: a.voterId,
+          role: a.role,
+          ...(typeof a.resumeToken === 'string' ? { resumeToken: a.resumeToken } : {}),
+        };
       }
     }
   } catch {

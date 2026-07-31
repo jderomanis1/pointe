@@ -50,10 +50,17 @@ export function VoteCards({
   }
 
   return (
-    <div
+    <div className="relative">
+      {deck.length > 5 ? (
+        <p id="card-scroll-hint" className="mb-1 text-center text-caption font-semibold text-text-muted sm:hidden">
+          Swipe sideways to see every card
+        </p>
+      ) : null}
+      <div
       ref={groupRef}
       role="radiogroup"
       aria-label="Story points"
+      aria-describedby={deck.length > 5 ? 'card-scroll-hint' : undefined}
       className="pointe-card-hand flex w-full items-end overflow-x-auto px-4 pb-7 pt-5 sm:justify-center sm:overflow-visible sm:px-8"
       onKeyDown={handleKeyDown}
     >
@@ -91,6 +98,8 @@ export function VoteCards({
           </button>
         );
       })}
+      </div>
+      <div aria-hidden="true" className="pointer-events-none absolute bottom-5 right-0 top-10 w-8 bg-gradient-to-l from-bg/90 to-transparent sm:hidden" />
     </div>
   );
 }

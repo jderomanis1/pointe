@@ -6,6 +6,7 @@ import { addVoter, createRoom, markRoomHostVacant } from '../src/operations';
 import { withRoom } from './helpers/pool';
 
 const HOST_ID = 'h-1';
+const HOST_RESUME_TOKEN = 'host-resume-token';
 const VOTER_B = 'v-b';
 const VOTER_C = 'v-c';
 const SPEC_ID = 's-1';
@@ -15,7 +16,8 @@ type SentEnvelope = { type: ServerMessageType; payload: unknown };
 function seedRoom(sql: SqlStorage): void {
   createRoom(sql, {
     roomId: 'r-1', slug: 'apt-sparrow-16', hostVoterId: HOST_ID,
-    hostDisplayName: 'Alice', deck: 'fibonacci', mode: 'sync', now: 1_000,
+    hostDisplayName: 'Alice', hostResumeToken: HOST_RESUME_TOKEN,
+    deck: 'fibonacci', mode: 'sync', now: 1_000,
   });
   sql.exec(`UPDATE room SET state = 'active'`);
   addVoter(sql, { voterId: VOTER_B, displayName: 'Ben', now: 2_000 });
@@ -76,7 +78,11 @@ function transfer(target: string, envId = 'c-tx'): Envelope {
 function join(resumeVoterId: string, envId = 'c-join'): Envelope {
   return {
     v: 1, type: 'JOIN_ROOM', id: envId, at: 0,
-    payload: { slug: 'apt-sparrow-16', resumeVoterId, role: 'voter' },
+    payload: {
+      slug: 'apt-sparrow-16', resumeVoterId,
+      ...(resumeVoterId === HOST_ID ? { resumeToken: HOST_RESUME_TOKEN } : {}),
+      role: 'voter',
+    },
   };
 }
 

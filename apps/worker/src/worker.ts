@@ -1,20 +1,22 @@
 import type { AnalyticsEngineDataset, KVNamespace } from '@cloudflare/workers-types';
 import type {
   ApiError,
-  CreateRoomRequest,
   CreateRoomResponse,
   DeckType,
   GetRoomResponse,
   RoomMode,
 } from '@pointe/shared';
 import { Room } from './room';
-import type { RoomReadState } from './operations';
-import { lookupSlug, reserveSlug } from './slug';
+import { createResumeToken, type RoomReadState } from './operations';
+import { isRoomSlug, lookupSlug, reserveSlug } from './slug';
 import {
   checkWindowedIpLimit, clientIp, HOUR_MS,
   RL_CREATE_PER_HOUR, RL_LOOKUP_PER_HOUR,
 } from './rateLimit';
 import { recordRoomCreated } from './metrics';
+import {
+  isAllowedWebSocketOrigin, readJsonBody, securityHeaders, validateCreateRoomRequest,
+} from './security';
 
 export { Room };
 
@@ -67,7 +69,7 @@ const SESSION_TTL_SECONDS = 86400; // 24h per SI-03
 function json(body: unknown, status: number, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: securityHeaders({ 'Content-Type': 'application/json', ...extraHeaders }),
   });
 }
 
@@ -105,28 +107,22 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
   if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'create', clientIp(request), createPerHour(env), HOUR_MS))) {
     return rateLimited('Too many rooms created from this IP. Try again later.', 3600);
   }
-  let parsed: unknown;
-  try {
-    parsed = await request.json();
-  } catch {
-    return errorResponse('MALFORMED_JSON', 'Malformed JSON body', 400);
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) {
+    return errorResponse(parsed.code, parsed.message, parsed.status);
   }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return errorResponse('INVALID_REQUEST', 'hostDisplayName required', 400);
+  const validated = validateCreateRoomRequest(parsed.value);
+  if (!validated.ok) {
+    return errorResponse(validated.code, validated.message, validated.status);
   }
-  const req = parsed as CreateRoomRequest;
+  const req = validated.value;
   const name = req.hostDisplayName;
-  if (typeof name !== 'string' || name.trim().length === 0 || name.length > 60) {
-    return errorResponse('INVALID_REQUEST', 'hostDisplayName required (1–60 chars)', 400);
-  }
-  const deck: DeckType = req.deck ?? 'fibonacci';
-  const mode: RoomMode = req.mode ?? 'sync';
-  if (deck === 'custom' && (!Array.isArray(req.customDeck) || req.customDeck.length === 0)) {
-    return errorResponse('INVALID_REQUEST', 'customDeck required when deck is "custom"', 400);
-  }
+  const deck: DeckType = req.deck;
+  const mode: RoomMode = req.mode;
 
   const roomId = crypto.randomUUID();
   const hostVoterId = crypto.randomUUID();
+  const hostResumeToken = createResumeToken();
   // Reserve the slug before creating the DO: cheap, fails fast. Leaks until TTL on later failure (v1 accepts).
   const slug = await reserveSlug(env.POINTE_SLUGS, roomId);
 
@@ -139,6 +135,7 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
         slug,
         hostVoterId,
         hostDisplayName: name,
+        hostResumeToken,
         deck,
         mode,
         customDeck: req.customDeck,
@@ -162,6 +159,7 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
   const responseBody: CreateRoomResponse = {
     slug,
     voterId: hostVoterId,
+    resumeToken: hostResumeToken,
     wsUrl: `wss://${host}/api/rooms/${slug}/ws`,
   };
   return json(responseBody, 201, { 'Set-Cookie': buildSessionCookie(hostVoterId, slug) });
@@ -170,10 +168,13 @@ async function createRoomEndpoint(request: Request, env: Env): Promise<Response>
 /** GET /api/rooms/:slug/ws → upgrade to WebSocket, forward to DO `/ws`. R2.i (transport entry). */
 async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response | null> {
   const { pathname } = new URL(request.url);
-  const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)\/ws$/);
-  if (!match) return null;
+  const match = pathname.match(/^\/api\/rooms\/([^/]+)\/ws$/);
+  if (!match || !isRoomSlug(match[1])) return null;
   if (request.headers.get('Upgrade') !== 'websocket') {
-    return new Response('Expected websocket', { status: 426 });
+    return new Response('Expected websocket', { status: 426, headers: securityHeaders() });
+  }
+  if (!isAllowedWebSocketOrigin(request)) {
+    return errorResponse('ORIGIN_NOT_ALLOWED', 'WebSocket origin is not allowed', 403);
   }
   const slug = match[1];
   const roomId = await lookupSlug(env.POINTE_SLUGS, slug);
@@ -195,8 +196,8 @@ async function wsUpgradeEndpoint(request: Request, env: Env): Promise<Response |
 /** GET /api/rooms/:slug → minimal `{state, deck}`. Full state comes over WS in R2. */
 async function getRoomEndpoint(request: Request, env: Env): Promise<Response | null> {
   const { pathname } = new URL(request.url);
-  const match = pathname.match(/^\/api\/rooms\/([a-z-]+-\d+)$/);
-  if (!match) return null;
+  const match = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+  if (!match || !isRoomSlug(match[1])) return null;
   // SI-06 per-hour ceiling — fixed-window KV counter. /ws is matched earlier so
   // the upgrade path is NOT counted as a lookup. See /spec/security.md §1.
   if (!(await checkWindowedIpLimit(env.POINTE_SLUGS, 'lookup', clientIp(request), RL_LOOKUP_PER_HOUR, HOUR_MS))) {
@@ -235,7 +236,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/api/health' && request.method === 'GET') {
-      return Response.json({ ok: true, ts: Date.now() });
+      return json({ ok: true, ts: Date.now() }, 200);
     }
 
     if (url.pathname === '/api/rooms' && request.method === 'POST') {

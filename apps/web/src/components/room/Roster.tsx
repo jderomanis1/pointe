@@ -33,14 +33,14 @@ export function Roster() {
   const liveCount = rows.filter((v) => v.connectionState !== 'left').length;
 
   return (
-    <aside className="rounded-[22px] border border-hairline bg-surface/85 px-4 py-4 shadow-card sm:px-5" aria-label="Team roster">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+    <aside className="rounded-[22px] border border-hairline bg-surface/85 px-3 py-3 shadow-card sm:px-5 sm:py-4" aria-label="Team roster">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="shrink-0">
           <p className="text-meta font-extrabold uppercase tracking-[.13em] text-accent-text">At the table</p>
           <p className="mt-1 text-sm font-semibold text-text-secondary">Voters · {liveCount}</p>
         </div>
 
-        <ul className="flex flex-1 flex-wrap gap-2 sm:justify-end">
+        <ul className="flex flex-1 flex-nowrap gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-end sm:overflow-visible sm:pb-0">
           {rows.map((v) => {
             const isMe = v.id === me?.voterId;
             return (
