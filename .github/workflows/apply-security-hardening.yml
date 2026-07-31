@@ -1,0 +1,72 @@
+name: Apply Security Hardening
+
+on:
+  push:
+    branches: [codex/security-and-mobile-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/security-and-mobile-hardening
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install current dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply implementation
+        run: python3 scripts/apply-security-hardening.py
+
+      - name: Refresh dependency lockfile
+        run: pnpm install --lockfile-only
+
+      - name: Install updated dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Worker tests
+        run: pnpm -F @pointe/worker test
+
+      - name: Web tests
+        run: pnpm -F @pointe/web test
+
+      - name: Browser E2E
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test:e2e
+
+      - name: Remove one-time implementation scaffold
+        run: rm scripts/apply-security-hardening.py .github/workflows/apply-security-hardening.yml
+
+      - name: Commit hardened implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Harden room security, resume, and mobile UX"
+          git push origin HEAD:codex/security-and-mobile-hardening
