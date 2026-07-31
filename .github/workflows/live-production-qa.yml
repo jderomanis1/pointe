@@ -1,0 +1,96 @@
+name: Live Production QA
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  live-production-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Wait for current production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..24}; do
+            health_status=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output /tmp/pointe-health.json --write-out "%{http_code}" \
+              https://pointe.team/api/health || true)
+            homepage=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              https://pointe.team/ || true)
+            sitemap=$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              https://pointe.team/sitemap.xml || true)
+
+            if [ "$health_status" = "200" ] \
+              && grep -Fq "Join the room. Pick a card. Keep moving." <<<"$homepage" \
+              && ! grep -Fq "/retro" <<<"$sitemap"; then
+              cat /tmp/pointe-health.json
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: production not ready; retrying..."
+            sleep 10
+          done
+          echo "Production did not reach the expected post-merge state" >&2
+          exit 1
+
+      - name: Run live UX, mobile, multiplayer, and security QA
+        run: pnpm exec playwright test --config=playwright.live.config.ts
+        env:
+          QA_BASE_URL: https://pointe.team
+
+      - name: Capture HTTP headers
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          curl --silent --show-error --location --dump-header qa-artifacts/homepage-headers.txt \
+            --output qa-artifacts/homepage.html https://pointe.team/ || true
+          curl --silent --show-error --location --dump-header qa-artifacts/api-health-headers.txt \
+            --output qa-artifacts/api-health.json https://pointe.team/api/health || true
+
+      - name: Audit production dependencies
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa-artifacts
+          pnpm audit --prod --json > qa-artifacts/pnpm-audit.json || true
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointe-live-production-qa
+          path: |
+            qa-artifacts
+            test-results/live-production
+          if-no-files-found: warn
+          retention-days: 14
